@@ -1,0 +1,76 @@
+{
+  "modelName": "SecureCode-VulnNet (Hybrid TF-IDF + Security Sink Ensemble)",
+  "version": "2.0.0",
+  "trainedAt": "2026-10-22T05:09:17.140493+00:00",
+  "totalSamples": 313,
+  "trainSamples": 250,
+  "testSamples": 63,
+  "featuresCount": 4017,
+  "structuralFeatures": [
+    "has_dynamic_interpolation",
+    "has_sql_keywords",
+    "has_parameterized_query",
+    "has_shell_exec_sink",
+    "has_safe_process_exec",
+    "has_unsafe_deserializer",
+    "has_safe_deserializer",
+    "has_insecure_crypto",
+    "has_secure_crypto",
+    "has_dom_xss_sink",
+    "has_safe_dom_sink",
+    "has_path_traversal_sink",
+    "has_path_containment",
+    "has_hardcoded_secret",
+    "has_env_secret_retrieval",
+    "has_osv_package_pattern",
+    "has_manageengine_endpoint_rule"
+  ],
+  "accuracy": 90.48,
+  "precision": 96.3,
+  "recall": 83.87,
+  "f1Score": 89.66,
+  "cweAccuracy": 92.06,
+  "confusionMatrix": [
+    [
+      31,
+      1
+    ],
+    [
+      5,
+      26
+    ]
+  ],
+  "cweDistribution": {
+    "CWE-89": 50,
+    "NONE": 160,
+    "CWE-78": 34,
+    "CWE-22": 15,
+    "CWE-502": 14,
+    "CWE-798": 13,
+    "CWE-327": 13,
+    "CWE-79": 10,
+    "CWE-200": 1,
+    "CWE-400": 1,
+    "CWE-1321": 1,
+    "CWE-1333": 1
+  },
+  "datasetSources": {
+    "OSV.dev (Google / OpenSSF)": 123,
+    "ManageEngine Endpoint Security (CVEs & Baselines)": 157,
+    "Secure Reference Standards": 144
+  },
+  "activeConnectors": [
+    {
+      "name": "OSV.dev REST API & Database",
+      "url": "https://osv.dev/",
+      "type": "Open Source Vulnerabilities (Google/OpenSSF)",
+      "status": "CONNECTED"
+    },
+    {
+      "name": "ManageEngine Endpoint Central Security",
+      "url": "https://www.manageengine.com/products/desktop-central/endpoint-central-endpoint-security.html",
+      "type": "Endpoint Threat & CVE Knowledge Base",
+      "status": "CONNECTED"
+    }
+  ]
+}
