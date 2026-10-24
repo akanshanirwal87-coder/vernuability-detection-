@@ -157,30 +157,110 @@ The application delivers all 8 primary workflow workspaces:
 ## 5. Getting Started & Running the Project
 
 ### Prerequisites
-- Python 3.12+
-- Node.js (v20+ LTS)
+- **Python**: 3.10+ (Tested on Python 3.12, 3.13, and 3.14)
+- **Node.js**: v18+ or v20+ LTS
+- **Package Managers**: `pip` (Python) and `npm` (Node)
 
-### Quick Start: Running Backend (FastAPI)
+---
 
-```powershell
-# Open terminal in project root
-cd "d:\final project\minor_project\backend"
+### Quick Start (One-Click Launchers)
 
-# Run FastAPI server with Uvicorn
-python main.py
+Automated launch scripts are provided for both Linux / macOS / Codespaces and Windows to run both services or individual components:
+
+| Operating System | Start Both (Full App) | Start Backend Only | Start Frontend Only |
+| :--- | :--- | :--- | :--- |
+| **Linux / Codespaces / macOS** | `./start_all.sh` | `./start_backend.sh` | `./start_frontend.sh` |
+| **Windows** | `start_all.bat` | `start_backend.bat` | `start_frontend.bat` |
+
+*(On Linux / macOS, ensure execution permissions if needed: `chmod +x start_*.sh`)*
+
+---
+
+### Manual Setup & Execution Guide
+
+If you prefer to install dependencies and run the backend and frontend manually in separate terminals:
+
+#### 1. Backend Setup & Startup (FastAPI + AI Engine)
+
+1. **Open a terminal in the project root** and create a Python virtual environment:
+   ```bash
+   # On Linux / macOS / Codespaces:
+   python3 -m venv .venv
+   source .venv/bin/activate
+
+   # On Windows (Command Prompt):
+   python -m venv .venv
+   .venv\Scripts\activate.bat
+
+   # On Windows (PowerShell):
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+2. **Install the backend dependencies**:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
+
+3. **Run the FastAPI server**:
+   ```bash
+   cd backend
+   python main.py
+   ```
+   - **Backend API Gateway**: `http://127.0.0.1:8000` (or `http://localhost:8000`)
+   - **Interactive API Documentation (Swagger)**: `http://127.0.0.1:8000/docs`
+   - **Health Diagnostic Endpoint**: `http://127.0.0.1:8000/health`
+
+#### 2. Frontend Setup & Startup (React + Vite + Tailwind)
+
+1. **Open a new terminal window** and navigate into the `frontend` directory:
+   ```bash
+   cd frontend
+   ```
+
+2. **Install the Node packages**:
+   ```bash
+   npm install
+   ```
+
+3. **Start the Vite development server**:
+   ```bash
+   npm run dev
+   ```
+   - **Web Application Interface**: `http://localhost:5173`
+   *(Vite is configured with `host: true` to bind on all network interfaces, supporting cloud devcontainers and port-forwarded environments).*
+
+---
+
+### Project Structure Overview
+
+```text
+vernuability-detection-/
+├── backend/
+│   ├── analyzer/              # AST parsing, JS regex rules, OSV client, ManageEngine client
+│   ├── data/                  # Security datasets and training samples
+│   ├── ml_engine/             # Hybrid ML models (TF-IDF + Security Sinks), classifier & training
+│   │   └── models/            # Serialized models (.pkl) & metrics
+│   ├── main.py                # FastAPI REST API endpoints
+│   ├── models.py              # Pydantic request & response data schemas
+│   ├── storage.py             # SQLite scan history and persistence
+│   ├── requirements.txt       # Python package dependencies
+│   └── scans.db               # SQLite database
+├── frontend/
+│   ├── src/
+│   │   ├── components/        # UI components (Monaco Editor, Visualizations, Drawers)
+│   │   ├── pages/             # App pages (Dashboard, Scan, Results, Remediation, etc.)
+│   │   ├── services/          # API client and demo fixture fallback
+│   │   └── types/             # TypeScript definitions
+│   ├── package.json           # Node.js dependencies and build scripts
+│   └── vite.config.ts         # Vite server configuration (with network host support)
+├── start_all.sh               # One-click launcher for Linux/Codespaces (both services)
+├── start_backend.sh           # Linux launcher for FastAPI backend
+├── start_frontend.sh          # Linux launcher for React frontend
+├── start_all.bat              # One-click launcher for Windows (both services)
+├── start_backend.bat          # Windows launcher for FastAPI backend
+└── start_frontend.bat         # Windows launcher for React frontend
 ```
-*Backend runs on `http://127.0.0.1:8000` (Swagger docs available at `http://127.0.0.1:8000/docs`).*
-
-### Quick Start: Running Frontend (React + Vite)
-
-```powershell
-# Open terminal in project root
-cd "d:\final project\minor_project\frontend"
-
-# Launch Vite development server
-npm run dev
-```
-*Frontend runs on `http://localhost:5173`.*
 
 ---
 

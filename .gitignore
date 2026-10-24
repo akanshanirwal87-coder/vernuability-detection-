@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 frontend/node_modules/
+.venv/
+venv/
+backend/.venv/
+backend/venv/
 
 # Python cache
 __pycache__/
