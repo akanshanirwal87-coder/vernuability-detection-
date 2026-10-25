@@ -128,6 +128,13 @@ export interface ScanHistoryItem {
   highestSeverity: Severity;
   status: ScanStatus;
   isDemo?: boolean;
+  findingsCount?: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    total: number;
+  };
 }
 
 export interface FixValidationRequest {

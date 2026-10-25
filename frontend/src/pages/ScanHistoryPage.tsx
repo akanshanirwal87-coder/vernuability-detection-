@@ -4,6 +4,8 @@ import { getScans, deleteScan } from '../services/scanService';
 import type { ScanHistoryItem } from '../types/scan';
 import { SeverityBadge } from '../components/common/SeverityBadge';
 import { DemoDataBanner } from '../components/common/DemoDataBanner';
+import { TableSkeleton } from '../components/common/Skeleton';
+import { AnimatedCounter } from '../components/common/AnimatedCounter';
 import { 
   Search, 
   Filter, 
@@ -190,8 +192,12 @@ export const ScanHistoryPage: React.FC = () => {
       </div>
 
       {/* Historical Scans Table */}
-      <div className="rounded-xl bg-card border border-border overflow-hidden shadow-sm">
-        {filteredScans.length === 0 ? (
+      <div className="rounded-xl bg-card border border-border overflow-hidden shadow-sm animate-fade-in-up">
+        {loading ? (
+          <div className="p-4">
+            <TableSkeleton rows={6} />
+          </div>
+        ) : filteredScans.length === 0 ? (
           <div className="p-12 text-center space-y-3">
             <Layers className="w-10 h-10 text-slate-500 mx-auto" />
             <h3 className="font-semibold text-sm text-slate-200">No Matching Scans</h3>
@@ -214,7 +220,7 @@ export const ScanHistoryPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-border/60">
                 {filteredScans.map((scan) => (
-                  <tr key={scan.id} className="hover:bg-surface/30 transition-colors">
+                  <tr key={scan.id} className="hover:bg-surface/40 transition-colors duration-150">
                     <td className="py-3.5 px-4 font-mono text-cyan-400 font-semibold">
                       {scan.id}
                       {scan.isDemo && (
@@ -234,7 +240,7 @@ export const ScanHistoryPage: React.FC = () => {
                       {new Date(scan.createdAt).toLocaleString()}
                     </td>
                     <td className="py-3.5 px-4 font-mono font-bold text-slate-200">
-                      {scan.totalFindings}
+                      <AnimatedCounter value={scan.totalFindings} />
                     </td>
                     <td className="py-3.5 px-4">
                       <SeverityBadge severity={scan.highestSeverity} size="sm" />
@@ -247,29 +253,29 @@ export const ScanHistoryPage: React.FC = () => {
                     <td className="py-3.5 px-4 text-right space-x-2">
                       <button
                         onClick={() => navigate(`/results/${scan.id}`)}
-                        className="p-1.5 rounded hover:bg-surface text-slate-300 hover:text-white"
-                        title="View Findings"
+                        className="p-1.5 rounded hover:bg-surface text-slate-300 hover:text-white transition-all duration-200 hover:scale-110 active:scale-95"
+                        title="Open Results"
                       >
                         <Eye className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => navigate(`/reports/${scan.id}`)}
-                        className="p-1.5 rounded hover:bg-surface text-slate-300 hover:text-white"
-                        title="Open Report"
+                        className="p-1.5 rounded hover:bg-surface text-slate-300 hover:text-white transition-all duration-200 hover:scale-110 active:scale-95"
+                        title="Download Report"
                       >
                         <FileText className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => navigate('/scan')}
-                        className="p-1.5 rounded hover:bg-surface text-cyan-400 hover:text-cyan-300"
+                        className="p-1.5 rounded hover:bg-surface text-cyan-400 hover:text-cyan-300 transition-all duration-200 hover:scale-110 active:scale-95"
                         title="Rescan"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => setDeleteTargetId(scan.id)}
-                        className="p-1.5 rounded hover:bg-surface text-red-400 hover:text-red-300"
-                        title="Delete"
+                        className="p-1.5 rounded hover:bg-surface text-red-400 hover:text-red-300 transition-all duration-200 hover:scale-110 active:scale-95"
+                        title="Delete Record"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

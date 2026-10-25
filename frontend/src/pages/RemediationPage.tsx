@@ -4,6 +4,8 @@ import { getScanById, validateFix } from '../services/scanService';
 import type { ScanResult, VulnerabilityFinding, ValidationStatus } from '../types/scan';
 import { SeverityBadge } from '../components/common/SeverityBadge';
 import { DemoDataBanner } from '../components/common/DemoDataBanner';
+import { Skeleton } from '../components/common/Skeleton';
+import { CodeScanline } from '../components/common/CodeScanline';
 import { 
   Wrench, 
   Copy, 
@@ -127,22 +129,34 @@ export const RemediationPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-96 flex flex-col items-center justify-center space-y-3">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-        <p className="text-xs font-mono text-slate-400">Loading remediation workspace...</p>
+      <div className="space-y-6 animate-fade-in" aria-label="Loading remediation workspace">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-border">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-3 w-80" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-28" rounded="lg" />
+            <Skeleton className="h-8 w-32" rounded="lg" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Skeleton className="h-72 w-full" rounded="xl" />
+          <Skeleton className="h-72 w-full" rounded="xl" />
+        </div>
       </div>
     );
   }
 
   if (!scan || !currentFinding) {
     return (
-      <div className="p-8 rounded-xl bg-card border border-border text-center space-y-3">
+      <div className="p-8 rounded-xl bg-card border border-border text-center space-y-3 animate-scale-in">
         <ShieldCheck className="w-10 h-10 text-emerald-400 mx-auto" />
         <h2 className="text-base font-bold text-white">No Vulnerabilities to Remediate</h2>
         <p className="text-xs text-slate-400">All findings have been resolved or scan is clean.</p>
         <button
           onClick={() => navigate('/dashboard')}
-          className="px-4 py-2 rounded-lg bg-primary text-white text-xs font-semibold"
+          className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5"
         >
           Return to Dashboard
         </button>
@@ -264,7 +278,7 @@ export const RemediationPage: React.FC = () => {
       {diffViewMode === 'diff' ? (
         /* Monaco Visual Diff Editor */
         <div className="space-y-3">
-          <div className="h-[360px] rounded-xl bg-card border border-border overflow-hidden shadow-sm">
+          <div className="h-[360px] rounded-xl bg-card border border-border overflow-hidden shadow-sm relative">
             <DiffEditor
               height="100%"
               language={scan.language}
@@ -282,6 +296,7 @@ export const RemediationPage: React.FC = () => {
                 padding: { top: 12, bottom: 12 }
               }}
             />
+            {validating && <CodeScanline label="COMPILING FIX & VALIDATING SINK ELIMINATION..." />}
           </div>
           <div className="p-3 bg-[#0F172A] rounded-xl border border-border flex items-center justify-between text-xs">
             <span className="text-slate-300">
@@ -289,7 +304,7 @@ export const RemediationPage: React.FC = () => {
             </span>
             <button
               onClick={handleCopyFix}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface border border-border text-[11px] text-slate-200 hover:text-white"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface border border-border text-[11px] text-slate-200 hover:text-white transition-all duration-200 hover:-translate-y-0.5 active:scale-95"
             >
               {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
               <span>{copied ? 'Copied' : 'Copy Patch'}</span>
@@ -300,7 +315,7 @@ export const RemediationPage: React.FC = () => {
         /* Side-by-Side Diff Comparison View Cards */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* LEFT: Original Vulnerable Implementation */}
-          <div className="rounded-xl bg-card border border-red-950/80 overflow-hidden shadow-sm flex flex-col">
+          <div className="rounded-xl bg-card border border-red-950/80 overflow-hidden shadow-sm flex flex-col transition-all duration-300 hover:border-red-900">
             <div className="px-4 py-2.5 bg-red-950/40 border-b border-red-900/40 flex items-center justify-between">
               <span className="text-xs font-bold text-red-400 font-mono flex items-center gap-1.5">
                 <ShieldAlert className="w-4 h-4" />
@@ -322,7 +337,7 @@ export const RemediationPage: React.FC = () => {
           </div>
 
           {/* RIGHT: Suggested Secure Code (Remediation) */}
-          <div className="rounded-xl bg-card border border-emerald-950/80 overflow-hidden shadow-sm flex flex-col">
+          <div className="rounded-xl bg-card border border-emerald-950/80 overflow-hidden shadow-sm flex flex-col relative transition-all duration-300 hover:border-emerald-900">
             <div className="px-4 py-2.5 bg-emerald-950/40 border-b border-emerald-900/40 flex items-center justify-between">
               <span className="text-xs font-bold text-emerald-400 font-mono flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4" />
@@ -331,7 +346,7 @@ export const RemediationPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleCopyFix}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface border border-border text-[11px] text-slate-300 hover:text-white transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface border border-border text-[11px] text-slate-300 hover:text-white transition-all duration-200 hover:-translate-y-0.5 active:scale-95"
                   title="Copy secure snippet"
                 >
                   {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
@@ -346,6 +361,7 @@ export const RemediationPage: React.FC = () => {
               className="p-4 bg-[#0B1020] text-emerald-300 font-mono text-xs overflow-x-auto min-h-[180px] w-full focus:outline-none focus:ring-1 focus:ring-emerald-500/40 leading-relaxed resize-none"
               spellCheck={false}
             />
+            {validating && <CodeScanline label="VALIDATING SINK ELIMINATION..." />}
             <div className="p-3 bg-[#0F172A] border-t border-border text-xs text-slate-400 space-y-1">
               <p className="font-semibold text-emerald-400">Explanation of Secure Changes:</p>
               <p className="text-[11px] text-slate-300 leading-relaxed">
@@ -358,10 +374,10 @@ export const RemediationPage: React.FC = () => {
 
       {/* Validation Feedback & Action Triggers */}
       {validationResult && (
-        <div className={`p-4 rounded-xl border text-xs space-y-1.5 ${
+        <div className={`p-4 rounded-xl border text-xs space-y-1.5 animate-scale-in transition-all duration-300 ${
           validationResult.passed
-            ? 'bg-emerald-950/30 border-emerald-800/60 text-emerald-300'
-            : 'bg-red-950/30 border-red-800/60 text-red-300'
+            ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-300 shadow-lg shadow-emerald-950/40'
+            : 'bg-red-950/40 border-red-500/60 text-red-300 shadow-lg shadow-red-950/40'
         }`}>
           <div className="flex items-center gap-2 font-semibold">
             {validationResult.passed ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <AlertTriangle className="w-4 h-4 text-red-400" />}

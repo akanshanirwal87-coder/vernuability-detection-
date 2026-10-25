@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { Toaster } from 'sonner';
 
 export const AppShell: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const location = useLocation();
 
   return (
     <div className="min-h-screen bg-background text-slate-100 flex">
@@ -20,7 +21,9 @@ export const AppShell: React.FC = () => {
       >
         <Header />
         <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
-          <Outlet />
+          <div key={location.pathname} className="animate-fade-in-up">
+            <Outlet />
+          </div>
         </main>
       </div>
 

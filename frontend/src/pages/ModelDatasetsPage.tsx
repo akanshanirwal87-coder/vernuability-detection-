@@ -27,6 +27,8 @@ import {
   getManageEngineAdvisories 
 } from '../services/scanService';
 import type { ModelMetricsResponse, ManageEngineAdvisoryItem, OsvQueryResultItem } from '../types/scan';
+import { AnimatedCounter } from '../components/common/AnimatedCounter';
+import { Skeleton } from '../components/common/Skeleton';
 import { toast } from 'sonner';
 
 export const ModelDatasetsPage: React.FC = () => {
@@ -178,7 +180,7 @@ export const ModelDatasetsPage: React.FC = () => {
 
       {/* KPI Metrics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl border border-border bg-surface flex flex-col justify-between">
+        <div className="animate-fade-in-up stagger-1 p-4 rounded-xl border border-border bg-surface flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-400">Model Accuracy</span>
             <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
@@ -187,17 +189,17 @@ export const ModelDatasetsPage: React.FC = () => {
           </div>
           <div className="mt-3">
             <div className="text-2xl font-bold font-mono text-emerald-400">
-              {modelInfo?.accuracy ?? 90.48}%
+              <AnimatedCounter value={modelInfo?.accuracy ?? 90.48} decimals={2} suffix="%" />
             </div>
             <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-              <span>Precision: <strong className="text-slate-300 font-mono">{modelInfo?.precision ?? 96.3}%</strong></span>
+              <span>Precision: <strong className="text-slate-300 font-mono"><AnimatedCounter value={modelInfo?.precision ?? 96.3} decimals={1} suffix="%" /></strong></span>
               <span>•</span>
-              <span>F1: <strong className="text-slate-300 font-mono">{modelInfo?.f1Score ?? 89.7}%</strong></span>
+              <span>F1: <strong className="text-slate-300 font-mono"><AnimatedCounter value={modelInfo?.f1Score ?? 89.7} decimals={1} suffix="%" /></strong></span>
             </div>
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-border bg-surface flex flex-col justify-between">
+        <div className="animate-fade-in-up stagger-2 p-4 rounded-xl border border-border bg-surface flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-400">Dataset Samples</span>
             <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
@@ -206,7 +208,7 @@ export const ModelDatasetsPage: React.FC = () => {
           </div>
           <div className="mt-3">
             <div className="text-2xl font-bold font-mono text-white">
-              {modelInfo?.totalSamples ?? 313}
+              <AnimatedCounter value={modelInfo?.totalSamples ?? 313} />
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
               Curated code patterns & CVE signatures
@@ -214,7 +216,7 @@ export const ModelDatasetsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-border bg-surface flex flex-col justify-between">
+        <div className="animate-fade-in-up stagger-3 p-4 rounded-xl border border-border bg-surface flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-400">Multi-Class CWE Accuracy</span>
             <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">
@@ -223,7 +225,7 @@ export const ModelDatasetsPage: React.FC = () => {
           </div>
           <div className="mt-3">
             <div className="text-2xl font-bold font-mono text-cyan-400">
-              {modelInfo?.cweAccuracy ?? 92.06}%
+              <AnimatedCounter value={modelInfo?.cweAccuracy ?? 92.06} decimals={2} suffix="%" />
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
               8 MITRE CWE categories classified
@@ -231,7 +233,7 @@ export const ModelDatasetsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-border bg-surface flex flex-col justify-between">
+        <div className="animate-fade-in-up stagger-4 p-4 rounded-xl border border-border bg-surface flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-400">Connected Connectors</span>
             <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">

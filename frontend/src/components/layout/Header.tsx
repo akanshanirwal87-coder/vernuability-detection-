@@ -60,7 +60,7 @@ export const Header: React.FC = () => {
         {/* ML & Dataset Status Badge */}
         <Link
           to="/model-datasets"
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-950/30 text-purple-300 text-[11px] font-mono hover:bg-purple-900/40 transition-colors"
+          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-950/30 text-purple-300 text-[11px] font-mono hover:bg-purple-900/40 hover:border-purple-500/60 transition-all duration-200 hover:-translate-y-0.5"
           title="AI/ML Model trained on real-world datasets from OSV.dev and ManageEngine Endpoint Security"
         >
           <Brain className="w-3 h-3 text-purple-400" />
@@ -69,7 +69,7 @@ export const Header: React.FC = () => {
 
         {/* Backend Status Indicator */}
         <div 
-          className={`flex items-center gap-2 px-2.5 py-1 rounded-full border text-[11px] font-mono transition-colors ${
+          className={`flex items-center gap-2 px-2.5 py-1 rounded-full border text-[11px] font-mono transition-all duration-200 ${
             backendOnline 
               ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400' 
               : 'bg-amber-950/40 border-amber-800/60 text-amber-300'
@@ -83,7 +83,7 @@ export const Header: React.FC = () => {
         {/* Start New Scan CTA */}
         <button
           onClick={() => navigate('/scan')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-medium transition-colors shadow-sm"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 shadow-sm shadow-blue-500/20"
         >
           <PlusCircle className="w-3.5 h-3.5" />
           <span>Start Scan</span>
@@ -93,7 +93,7 @@ export const Header: React.FC = () => {
         <div className="relative">
           <button
             onClick={() => setShowNotifications(!showNotifications)}
-            className="p-2 rounded-lg bg-surface border border-border text-slate-300 hover:text-white transition-colors relative"
+            className="p-2 rounded-lg bg-surface border border-border text-slate-300 hover:text-white hover:border-border-light transition-all duration-200 hover:scale-105 active:scale-95 relative"
             title="System alerts"
           >
             <Bell className="w-4 h-4" />
@@ -101,7 +101,7 @@ export const Header: React.FC = () => {
           </button>
 
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-72 bg-card border border-border rounded-xl shadow-xl p-3 z-50 text-xs">
+            <div className="absolute right-0 mt-2 w-72 bg-card border border-border rounded-xl shadow-2xl p-3 z-50 text-xs animate-scale-in">
               <div className="flex items-center justify-between pb-2 border-b border-border">
                 <span className="font-semibold text-white">System Notifications</span>
                 <span className="text-[10px] text-cyan-400 font-mono">Active</span>

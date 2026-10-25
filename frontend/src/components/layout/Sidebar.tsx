@@ -61,7 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
           </NavLink>
           <button
             onClick={onToggle}
-            className="p-1.5 rounded-md hover:bg-surface text-slate-400 hover:text-white transition-colors"
+            className="p-1.5 rounded-md hover:bg-surface text-slate-400 hover:text-white transition-all duration-200 hover:scale-105 active:scale-95"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
@@ -75,20 +75,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
+                `group flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 ease-out ${
                   isActive
-                    ? 'bg-primary/20 text-blue-400 border border-primary/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-100 hover:bg-surface/60'
-                } ${collapsed ? 'justify-center' : ''}`
+                    ? 'bg-primary/20 text-blue-400 border border-primary/40 shadow-sm shadow-blue-900/20 translate-x-0.5'
+                    : 'text-slate-400 hover:text-slate-100 hover:bg-surface/70 hover:translate-x-1'
+                } ${collapsed ? 'justify-center !translate-x-0' : ''}`
               }
               title={collapsed ? item.name : undefined}
             >
-              <item.icon className="w-4 h-4 shrink-0" />
+              <item.icon className="w-4 h-4 shrink-0 transition-transform duration-200 group-hover:scale-110" />
               {!collapsed && (
                 <div className="flex items-center justify-between w-full">
                   <span>{item.name}</span>
                   {item.badge && (
-                    <span className="text-[9px] font-mono px-1.5 py-0.2 bg-cyan-950/60 text-cyan-400 border border-cyan-800/60 rounded">
+                    <span className="text-[9px] font-mono px-1.5 py-0.2 bg-cyan-950/60 text-cyan-400 border border-cyan-800/60 rounded transition-colors group-hover:border-cyan-500/80">
                       {item.badge}
                     </span>
                   )}

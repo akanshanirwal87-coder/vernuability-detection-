@@ -20,6 +20,7 @@ import { SAMPLE_CODE_SNIPPETS } from '../services/sampleCode';
 import type { SampleSnippet } from '../services/sampleCode';
 import { createScan } from '../services/scanService';
 import type { ScanRequest, ScanOptions } from '../types/scan';
+import { CodeScanline } from '../components/common/CodeScanline';
 import { toast } from 'sonner';
 
 export const NewScanPage: React.FC = () => {
@@ -373,7 +374,7 @@ export const NewScanPage: React.FC = () => {
 
             {/* Tab 1: Monaco Code Editor */}
             {inputTab === 'editor' ? (
-              <div className="h-[460px] w-full bg-[#0B1020]">
+              <div className="h-[460px] w-full bg-[#0B1020] relative overflow-hidden">
                 <Editor
                   height="100%"
                   language={language}
@@ -391,6 +392,7 @@ export const NewScanPage: React.FC = () => {
                     padding: { top: 12, bottom: 12 },
                   }}
                 />
+                {scanning && <CodeScanline label="ANALYZING AST SYNTAX & SINK FLOWS..." />}
               </div>
             ) : (
               /* Tab 2: Drag and Drop Upload Area */
@@ -445,7 +447,7 @@ export const NewScanPage: React.FC = () => {
             <button
               onClick={handleStartScan}
               disabled={scanning || !sourceCode.trim()}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary hover:bg-primary-hover disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-xs font-semibold transition-all shadow-md shadow-blue-500/20"
+              className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5 shadow-md shadow-blue-500/20 hover:shadow-blue-500/35"
             >
               {scanning ? (
                 <>
@@ -465,34 +467,47 @@ export const NewScanPage: React.FC = () => {
 
       {/* Multi-Stage Scan Progress Modal */}
       {scanning && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-2xl max-w-lg w-full p-6 space-y-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-card border border-cyan-500/30 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl shadow-cyan-950/50 animate-scale-in">
             <div className="flex items-center justify-between pb-3 border-b border-border">
               <div className="flex items-center gap-2.5">
                 <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
-                <h3 className="font-bold text-sm text-white">
-                  Executing Program Security Analysis
-                </h3>
+                <div>
+                  <h3 className="font-bold text-sm text-white">
+                    Executing Program Security Analysis
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                    Stage {activeStageIndex + 1} of {scanStages.length}: {scanStages[activeStageIndex].title}
+                  </p>
+                </div>
               </div>
-              <span className="text-xs font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-800/40 px-2 py-0.5 rounded">
-                Stage {activeStageIndex + 1} / {scanStages.length}
+              <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/70 border border-cyan-800/60 px-2.5 py-1 rounded-lg">
+                {Math.round(((activeStageIndex + 1) / scanStages.length) * 100)}%
               </span>
             </div>
 
+            {/* Smooth Progress Indicator Bar */}
+            <div className="w-full bg-[#0B1020] rounded-full h-2 overflow-hidden p-0.5 border border-border">
+              <div 
+                className="bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 h-full rounded-full transition-all duration-300 ease-out shadow-sm shadow-cyan-500/50"
+                style={{ width: `${Math.round(((activeStageIndex + 1) / scanStages.length) * 100)}%` }}
+              />
+            </div>
+
             {/* Stages Stack */}
-            <div className="space-y-3">
+            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
               {scanStages.map((stage, idx) => {
                 const isDone = idx < activeStageIndex;
                 const isCurrent = idx === activeStageIndex;
                 return (
                   <div
                     key={idx}
-                    className={`p-3 rounded-lg border text-xs transition-all flex items-start gap-3 ${
+                    className={`p-3 rounded-lg border text-xs transition-all duration-300 flex items-start gap-3 ${
                       isDone
                         ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
                         : isCurrent
-                        ? 'bg-primary/20 border-primary/50 text-blue-200 shadow-sm'
-                        : 'bg-surface/20 border-border/40 text-slate-500'
+                        ? 'bg-cyan-950/30 border-cyan-500/60 text-cyan-200 shadow-md shadow-cyan-950/30'
+                        : 'bg-surface/20 border-border/40 text-slate-500 opacity-60'
                     }`}
                   >
                     <div className="mt-0.5">
@@ -519,8 +534,9 @@ export const NewScanPage: React.FC = () => {
               })}
             </div>
 
-            <div className="pt-2 text-center text-[11px] text-slate-400 font-mono">
-              Analyzing AST nodes, identifying sinks, and classifying CWE risk...
+            <div className="pt-2 text-center text-[11px] text-slate-400 font-mono flex items-center justify-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+              <span>Analyzing AST nodes, identifying sinks, and classifying CWE risk...</span>
             </div>
           </div>
         </div>

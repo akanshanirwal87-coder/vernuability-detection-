@@ -17,6 +17,8 @@ import type {
 import { SeverityBadge } from '../components/common/SeverityBadge';
 import { DemoDataBanner } from '../components/common/DemoDataBanner';
 import { DataFlowDiagram } from '../components/common/DataFlowDiagram';
+import { AnimatedCounter } from '../components/common/AnimatedCounter';
+import { Skeleton, FindingsListSkeleton } from '../components/common/Skeleton';
 import { 
   ShieldAlert, 
   Search, 
@@ -79,22 +81,62 @@ export const ScanResultsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-96 flex flex-col items-center justify-center space-y-3">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs font-mono text-slate-400">Loading scan results and AST inspection data...</p>
+      <div className="space-y-6 animate-fade-in" aria-label="Loading scan results">
+        {/* Header Skeleton */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-2 border-b border-border">
+          <div className="flex items-center gap-3">
+            <Skeleton className="w-8 h-8" rounded="lg" />
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-3 w-72" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-28" rounded="lg" />
+            <Skeleton className="h-8 w-32" rounded="lg" />
+          </div>
+        </div>
+
+        {/* Severity Summary Bar Skeleton */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="p-3.5 rounded-xl bg-card border border-border flex items-center justify-between">
+              <div className="space-y-1.5 flex-1 mr-2">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-6 w-10" />
+              </div>
+              <Skeleton className="w-5 h-5" rounded="sm" />
+            </div>
+          ))}
+        </div>
+
+        {/* Findings Grid Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-5 space-y-3">
+            <FindingsListSkeleton count={4} />
+          </div>
+          <div className="lg:col-span-7">
+            <div className="p-6 rounded-xl bg-card border border-border h-96 space-y-4">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-3/4" />
+              <Skeleton className="h-44 w-full" rounded="lg" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!scan) {
     return (
-      <div className="p-8 rounded-xl bg-card border border-border text-center space-y-4">
+      <div className="p-8 rounded-xl bg-card border border-border text-center space-y-4 animate-scale-in">
         <ShieldAlert className="w-10 h-10 text-slate-500 mx-auto" />
         <h2 className="text-lg font-bold text-white">Scan Not Found</h2>
         <p className="text-xs text-slate-400">The requested scan ID does not exist or has been removed.</p>
         <button
           onClick={() => navigate('/scan')}
-          className="px-4 py-2 rounded-lg bg-primary text-white text-xs font-semibold"
+          className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5"
         >
           Start New Scan
         </button>
@@ -124,7 +166,7 @@ export const ScanResultsPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/scan')}
-              className="p-1.5 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-400 hover:text-white transition-all duration-200 hover:-translate-x-0.5 active:scale-95"
               title="Return to editor"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -153,7 +195,7 @@ export const ScanResultsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => generatePdfReport(scan)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-200 text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-200 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95"
               title="Download professional PDF security audit"
             >
               <Download className="w-3.5 h-3.5 text-cyan-400" />
@@ -161,14 +203,14 @@ export const ScanResultsPage: React.FC = () => {
             </button>
             <button
               onClick={() => navigate(`/remediation/${scan.id}`)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-semibold transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5 shadow-sm shadow-blue-500/20"
             >
               <Wrench className="w-3.5 h-3.5" />
               <span>AI Remediation</span>
             </button>
             <button
               onClick={() => navigate('/scan')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-300 text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-300 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 active:scale-95"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Rescan</span>
@@ -183,42 +225,52 @@ export const ScanResultsPage: React.FC = () => {
 
       {/* Severity Summary Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <div className="p-3.5 rounded-xl bg-card border border-border flex items-center justify-between">
+        <div className="animate-fade-in-up stagger-1 p-3.5 rounded-xl bg-card border border-border flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-700">
           <div>
             <p className="text-[11px] font-medium text-slate-400">Total Findings</p>
-            <h3 className="text-xl font-bold text-white mt-0.5">{scan.findingsCount.total}</h3>
+            <h3 className="text-xl font-bold text-white mt-0.5">
+              <AnimatedCounter value={scan.findingsCount.total} />
+            </h3>
           </div>
           <Layers className="w-4 h-4 text-slate-400" />
         </div>
 
-        <div className="p-3.5 rounded-xl bg-red-950/20 border border-red-900/40 flex items-center justify-between">
+        <div className={`animate-fade-in-up stagger-2 p-3.5 rounded-xl bg-red-950/20 border border-red-900/40 flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5 ${scan.findingsCount.critical > 0 ? 'animate-pulse-critical' : ''}`}>
           <div>
             <p className="text-[11px] font-medium text-red-300">Critical</p>
-            <h3 className="text-xl font-bold text-red-400 mt-0.5">{scan.findingsCount.critical}</h3>
+            <h3 className="text-xl font-bold text-red-400 mt-0.5 flex items-center gap-1">
+              <AnimatedCounter value={scan.findingsCount.critical} />
+            </h3>
           </div>
           <ShieldAlert className="w-4 h-4 text-red-400" />
         </div>
 
-        <div className="p-3.5 rounded-xl bg-orange-950/20 border border-orange-900/40 flex items-center justify-between">
+        <div className="animate-fade-in-up stagger-3 p-3.5 rounded-xl bg-orange-950/20 border border-orange-900/40 flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5">
           <div>
             <p className="text-[11px] font-medium text-orange-300">High</p>
-            <h3 className="text-xl font-bold text-orange-400 mt-0.5">{scan.findingsCount.high}</h3>
+            <h3 className="text-xl font-bold text-orange-400 mt-0.5">
+              <AnimatedCounter value={scan.findingsCount.high} />
+            </h3>
           </div>
           <AlertTriangle className="w-4 h-4 text-orange-400" />
         </div>
 
-        <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-900/40 flex items-center justify-between">
+        <div className="animate-fade-in-up stagger-4 p-3.5 rounded-xl bg-amber-950/20 border border-amber-900/40 flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5">
           <div>
             <p className="text-[11px] font-medium text-amber-300">Medium</p>
-            <h3 className="text-xl font-bold text-amber-400 mt-0.5">{scan.findingsCount.medium}</h3>
+            <h3 className="text-xl font-bold text-amber-400 mt-0.5">
+              <AnimatedCounter value={scan.findingsCount.medium} />
+            </h3>
           </div>
           <AlertTriangle className="w-4 h-4 text-amber-400" />
         </div>
 
-        <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-900/40 flex items-center justify-between">
+        <div className="animate-fade-in-up stagger-5 p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-900/40 flex items-center justify-between transition-all duration-200 hover:-translate-y-0.5">
           <div>
             <p className="text-[11px] font-medium text-emerald-300">Low</p>
-            <h3 className="text-xl font-bold text-emerald-400 mt-0.5">{scan.findingsCount.low}</h3>
+            <h3 className="text-xl font-bold text-emerald-400 mt-0.5">
+              <AnimatedCounter value={scan.findingsCount.low} />
+            </h3>
           </div>
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
         </div>
@@ -416,10 +468,10 @@ export const ScanResultsPage: React.FC = () => {
                   <div
                     key={finding.id}
                     onClick={() => setSelectedFinding(finding)}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+                    className={`p-3.5 rounded-xl border transition-all duration-200 cursor-pointer ${
                       isSelected
-                        ? 'bg-[#162032] border-primary shadow-md'
-                        : 'bg-card border-border hover:border-slate-700 hover:bg-[#131B2E]'
+                        ? 'bg-[#162032] border-primary shadow-md shadow-blue-950/40 -translate-y-0.5 ring-1 ring-primary/40'
+                        : 'bg-card border-border hover:border-slate-700 hover:bg-[#131B2E] hover:-translate-y-0.5 hover:shadow-md hover:shadow-cyan-950/20'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1.5">

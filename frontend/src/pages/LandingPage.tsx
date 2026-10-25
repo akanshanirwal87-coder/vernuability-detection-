@@ -30,7 +30,7 @@ export const LandingPage: React.FC = () => {
   return (
     <div className="space-y-16 py-6 max-w-6xl mx-auto">
       {/* Hero Section */}
-      <div className="text-center space-y-6 pt-4">
+      <div className="text-center space-y-6 pt-4 animate-fade-in-up stagger-1">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-blue-400 text-xs font-mono">
           <GraduationCap className="w-3.5 h-3.5" />
           <span>Academic B.Tech CSE (AI & ML) Research Project</span>
@@ -50,14 +50,14 @@ export const LandingPage: React.FC = () => {
         <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
           <button
             onClick={() => navigate('/scan')}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-primary hover:bg-primary-hover text-white text-sm font-semibold transition-all shadow-lg shadow-blue-500/20"
+            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 text-white text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40"
           >
             <Terminal className="w-4 h-4" />
             <span>Start Secure Scan</span>
           </button>
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-200 text-sm font-medium transition-all"
+            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-surface hover:bg-surface/80 active:scale-95 border border-border text-slate-200 text-sm font-medium transition-all duration-200 hover:-translate-y-0.5"
           >
             <LayoutDashboard className="w-4 h-4" />
             <span>Explore Dashboard</span>
@@ -66,7 +66,7 @@ export const LandingPage: React.FC = () => {
       </div>
 
       {/* Visual Workspace Preview */}
-      <div className="relative rounded-2xl border border-border bg-[#0B1020] p-4 shadow-2xl overflow-hidden">
+      <div className="animate-fade-in-up stagger-3 relative rounded-2xl border border-border bg-[#0B1020] p-4 shadow-2xl overflow-hidden transition-all duration-300 hover:border-slate-700/80 hover:shadow-cyan-950/20">
         <div className="flex items-center justify-between pb-3 border-b border-border/80 px-2">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-red-500/80" />
@@ -128,7 +128,7 @@ export const LandingPage: React.FC = () => {
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {workflowSteps.map((step, idx) => (
-            <div key={idx} className="relative p-3 rounded-xl bg-card border border-border text-center flex flex-col justify-between">
+            <div key={idx} className="relative p-3 rounded-xl bg-card border border-border text-center flex flex-col justify-between transition-all duration-200 hover:-translate-y-1 hover:border-cyan-500/40 hover:shadow-md hover:shadow-cyan-950/20">
               <div>
                 <span className="text-[10px] font-mono text-cyan-400 font-bold block mb-1">
                   0{idx + 1}
@@ -152,7 +152,7 @@ export const LandingPage: React.FC = () => {
 
       {/* Four Core Feature Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-5 rounded-xl bg-card border border-border space-y-3">
+        <div className="p-5 rounded-xl bg-card border border-border space-y-3 transition-all duration-300 hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
           <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 w-fit">
             <Cpu className="w-5 h-5" />
           </div>
@@ -162,7 +162,7 @@ export const LandingPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="p-5 rounded-xl bg-card border border-border space-y-3">
+        <div className="p-5 rounded-xl bg-card border border-border space-y-3 transition-all duration-300 hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
           <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 w-fit">
             <SearchCode className="w-5 h-5" />
           </div>
@@ -172,7 +172,7 @@ export const LandingPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="p-5 rounded-xl bg-card border border-border space-y-3">
+        <div className="p-5 rounded-xl bg-card border border-border space-y-3 transition-all duration-300 hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
           <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 w-fit">
             <Wrench className="w-5 h-5" />
           </div>
@@ -182,7 +182,7 @@ export const LandingPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="p-5 rounded-xl bg-card border border-border space-y-3">
+        <div className="p-5 rounded-xl bg-card border border-border space-y-3 transition-all duration-300 hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
           <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 w-fit">
             <FileCheck2 className="w-5 h-5" />
           </div>
