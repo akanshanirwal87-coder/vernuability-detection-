@@ -70,6 +70,10 @@ class PythonAstScanner:
         self._check_path_traversal(tree)
         self._check_insecure_crypto(tree)
         self._check_unsafe_deserialization(tree)
+        self._check_ssrf(tree)
+        self._check_insecure_config(tree)
+        self._check_insecure_temp_file(tree)
+        self._check_xxe(tree)
 
         ast_summary = {
             "nodesCount": self.total_nodes,
@@ -409,4 +413,271 @@ class PythonAstScanner:
                             "remediationStatus": "OPEN",
                             "validationStatus": "NOT_VALIDATED"
                         })
+
+    def _check_ssrf(self, tree: ast.AST):
+        """Detect Server-Side Request Forgery (CWE-918) via unvalidated HTTP client calls."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                is_http_sink = False
+                sink_label = ""
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr in ("get", "post", "put", "delete", "request") and isinstance(node.func.value, ast.Name) and node.func.value.id in ("requests", "session", "client", "http"):
+                        is_http_sink = True
+                        sink_label = f"{node.func.value.id}.{node.func.attr}"
+                    elif node.func.attr == "urlopen" and isinstance(node.func.value, (ast.Name, ast.Attribute)):
+                        is_http_sink = True
+                        sink_label = "urllib.request.urlopen"
+
+                if is_http_sink and node.args:
+                    self.sinks_identified += 1
+                    arg0 = node.args[0]
+                    is_vuln = False
+                    data_flow = []
+
+                    if self._is_dynamic_string(arg0):
+                        is_vuln = True
+                    elif isinstance(arg0, ast.Name) and arg0.id in self.variable_assignments:
+                        assign_info = self.variable_assignments[arg0.id]
+                        if self._is_dynamic_string(assign_info["node"]) or any(kw in arg0.id.lower() for kw in ("url", "target", "host", "endpoint", "path")):
+                            is_vuln = True
+                            data_flow = [
+                                {
+                                    "step": 1,
+                                    "label": "Source: Untrusted URL / Destination",
+                                    "codeSnippet": self._get_line_code(assign_info["line"], assign_info["line"]),
+                                    "line": assign_info["line"],
+                                    "type": "SOURCE",
+                                    "description": f"Target address `{arg0.id}` derived from dynamic parameters."
+                                },
+                                {
+                                    "step": 2,
+                                    "label": "Sink: Outbound HTTP Request",
+                                    "codeSnippet": self._get_line_code(node.lineno, node.lineno),
+                                    "line": node.lineno,
+                                    "type": "SINK",
+                                    "description": f"Outbound network request dispatched by `{sink_label}` without IP allowlist validation."
+                                }
+                            ]
+
+                    if is_vuln:
+                        evidence = self._get_line_code(node.lineno, node.lineno)
+                        self.findings.append({
+                            "id": f"fnd-ssrf-{uuid.uuid4().hex[:6]}",
+                            "title": "Server-Side Request Forgery (SSRF) via Dynamic HTTP Call",
+                            "category": "COMMAND_INJECTION",
+                            "severity": "HIGH",
+                            "cwe": "CWE-918",
+                            "owaspCategory": "A10:2021-Server-Side Request Forgery (SSRF)",
+                            "file": self.file_name,
+                            "startLine": node.lineno,
+                            "endLine": node.end_lineno or node.lineno,
+                            "confidence": 0.93,
+                            "description": f"Untrusted network request initiated to an external destination via `{sink_label}` without allowlisting.",
+                            "evidence": evidence,
+                            "impact": "Attackers can probe internal metadata endpoints (e.g. 169.254.169.254), scan internal ports, and pivot into the internal network.",
+                            "dataFlow": data_flow if data_flow else None,
+                            "vulnerableCode": evidence,
+                            "remediationCode": "import ipaddress, urllib.parse\n# Parse and validate against strict allowed domains and reject private/loopback IP ranges\nparsed = urllib.parse.urlparse(target_url)\nif parsed.netloc not in ALLOWED_DOMAINS:\n    raise ValueError('Disallowed destination')",
+                            "remediationExplanation": "Enforce strict allowlists of allowed domains/schemes and block access to RFC-1918 private subnets and cloud metadata endpoints (169.254.169.254).",
+                            "bestPractices": [
+                                "Validate and restrict destination URLs against an allowlist.",
+                                "Disable HTTP redirects in client libraries.",
+                                "Segment network egress and block internal loopback/metadata IP addresses."
+                            ],
+                            "references": [
+                                "https://cwe.mitre.org/data/definitions/918.html",
+                                "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/"
+                            ],
+                            "remediationStatus": "OPEN",
+                            "validationStatus": "NOT_VALIDATED"
+                        })
+
+    def _check_insecure_config(self, tree: ast.AST):
+        """Detect Insecure Debug Mode & Permissive CORS (CWE-489 / CWE-942)."""
+        for node in ast.walk(tree):
+            # Check app.run(debug=True)
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "run":
+                    for kw in node.keywords:
+                        if kw.arg == "debug" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                            evidence = self._get_line_code(node.lineno, node.lineno)
+                            self.findings.append({
+                                "id": f"fnd-debug-{uuid.uuid4().hex[:6]}",
+                                "title": "Framework Debug Mode Enabled in Production Context",
+                                "category": "HARDCODED_CREDENTIALS",
+                                "severity": "HIGH",
+                                "cwe": "CWE-489",
+                                "owaspCategory": "A05:2021-Security Misconfiguration",
+                                "file": self.file_name,
+                                "startLine": node.lineno,
+                                "endLine": node.end_lineno or node.lineno,
+                                "confidence": 0.98,
+                                "description": "Application server initiated with debug=True, which enables interactive interactive console debuggers and stack trace exposure.",
+                                "evidence": evidence,
+                                "impact": "Interactive debuggers (like Werkzeug pin/console) allow adversaries to execute arbitrary Python commands on the server.",
+                                "vulnerableCode": evidence,
+                                "remediationCode": "app.run(debug=False)",
+                                "remediationExplanation": "Disable debug mode in production environments and configure structured logging.",
+                                "bestPractices": [
+                                    "Ensure debug=False in production deployments.",
+                                    "Read debug configuration from environment variables with a safe false default."
+                                ],
+                                "references": ["https://cwe.mitre.org/data/definitions/489.html"],
+                                "remediationStatus": "OPEN",
+                                "validationStatus": "NOT_VALIDATED"
+                            })
+
+    def _check_insecure_temp_file(self, tree: ast.AST):
+        """Detect Insecure Temporary File Creation (CWE-377)."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "mktemp":
+                    if isinstance(node.func.value, ast.Name) and node.func.value.id == "tempfile":
+                        evidence = self._get_line_code(node.lineno, node.lineno)
+                        self.findings.append({
+                            "id": f"fnd-temp-{uuid.uuid4().hex[:6]}",
+                            "title": "Insecure Temporary File Generation via tempfile.mktemp",
+                            "category": "PATH_TRAVERSAL",
+                            "severity": "MEDIUM",
+                            "cwe": "CWE-377",
+                            "owaspCategory": "A01:2021-Broken Access Control",
+                            "file": self.file_name,
+                            "startLine": node.lineno,
+                            "endLine": node.end_lineno or node.lineno,
+                            "confidence": 0.96,
+                            "description": "tempfile.mktemp() is deprecated and vulnerable to symlink race condition (TOCTOU) attacks.",
+                            "evidence": evidence,
+                            "impact": "Attackers can predict or race file creation to hijack file handles or overwrite arbitrary system files.",
+                            "vulnerableCode": evidence,
+                            "remediationCode": "with tempfile.NamedTemporaryFile(delete=False) as temp_file:\n    temp_path = temp_file.name",
+                            "remediationExplanation": "Use tempfile.NamedTemporaryFile() which safely creates the file with atomic 0600 permissions.",
+                            "bestPractices": [
+                                "Use tempfile.NamedTemporaryFile or mkstemp() for safe atomic creation.",
+                                "Avoid deprecated mktemp() in all security-sensitive contexts."
+                            ],
+                            "references": ["https://cwe.mitre.org/data/definitions/377.html"],
+                            "remediationStatus": "OPEN",
+                            "validationStatus": "NOT_VALIDATED"
+                        })
+
+    def _check_xxe(self, tree: ast.AST):
+        """Detect XML External Entity (XXE) Injection (CWE-611)."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Attribute) and node.func.attr in ("fromstring", "parse"):
+                    mod_repr = ""
+                    if isinstance(node.func.value, ast.Attribute):
+                        mod_repr = node.func.value.attr
+                    elif isinstance(node.func.value, ast.Name):
+                        mod_repr = node.func.value.id
+
+                    if mod_repr in ("ElementTree", "etree", "minidom"):
+                        evidence = self._get_line_code(node.lineno, node.lineno)
+                        self.findings.append({
+                            "id": f"fnd-xxe-{uuid.uuid4().hex[:6]}",
+                            "title": "XML External Entity (XXE) Injection Risk",
+                            "category": "COMMAND_INJECTION",
+                            "severity": "HIGH",
+                            "cwe": "CWE-611",
+                            "owaspCategory": "A05:2021-Security Misconfiguration",
+                            "file": self.file_name,
+                            "startLine": node.lineno,
+                            "endLine": node.end_lineno or node.lineno,
+                            "confidence": 0.90,
+                            "description": f"Parsing XML via standard `{mod_repr}.{node.func.attr}` without disabling DTD / external entities exposes the application to XXE.",
+                            "evidence": evidence,
+                            "impact": "Enables arbitrary local file read (e.g., /etc/passwd), server-side request forgery, and denial of service (Billion Laughs attack).",
+                            "vulnerableCode": evidence,
+                            "remediationCode": "import defusedxml.ElementTree as ET\nroot = ET.fromstring(xml_data)",
+                            "remediationExplanation": "Replace standard xml.etree with defusedxml, which automatically disallows DTD entities and external entity expansion.",
+                            "bestPractices": [
+                                "Use defusedxml for parsing untrusted XML data.",
+                                "Disable DTD processing and external entity resolution in XML parsers."
+                            ],
+                            "references": ["https://cwe.mitre.org/data/definitions/611.html"],
+                            "remediationStatus": "OPEN",
+                            "validationStatus": "NOT_VALIDATED"
+                        })
+
+    def get_ast_tree(self) -> Dict[str, Any]:
+        """Produce a hierarchical AST node graph for frontend visualization and analysis."""
+        try:
+            tree = ast.parse(self.source_code)
+        except SyntaxError:
+            return {"name": "SyntaxError", "type": "Error", "role": "SINK", "description": "Failed to compile AST"}
+
+        def node_to_dict(node: ast.AST, depth: int = 0) -> Dict[str, Any]:
+            node_type = type(node).__name__
+            lineno = getattr(node, "lineno", None)
+            col_offset = getattr(node, "col_offset", None)
+            
+            # Determine security classification
+            role = "SAFE"
+            description = f"Standard AST node ({node_type})"
+
+            # Sinks
+            if isinstance(node, ast.Call):
+                func_str = ""
+                if isinstance(node.func, ast.Attribute):
+                    func_str = node.func.attr
+                elif isinstance(node.func, ast.Name):
+                    func_str = node.func.id
+                
+                if func_str in ("execute", "executemany", "system", "popen", "run", "loads", "mktemp", "fromstring", "md5", "sha1"):
+                    role = "SINK"
+                    description = f"Potential sensitive execution sink `{func_str}()`"
+                else:
+                    description = f"Function invocation `{func_str}()`"
+            # Transforms
+            elif isinstance(node, (ast.BinOp, ast.JoinedStr)):
+                role = "TRANSFORM"
+                description = "Dynamic string concatenation or interpolation"
+            # Sources
+            elif isinstance(node, ast.Name) and any(src in node.id.lower() for src in ("user", "input", "param", "req", "query", "payload")):
+                role = "SOURCE"
+                description = f"Potential untrusted source variable `{node.id}`"
+
+            label = node_type
+            if isinstance(node, ast.FunctionDef):
+                label = f"Function: {node.name}"
+            elif isinstance(node, ast.ClassDef):
+                label = f"Class: {node.name}"
+            elif isinstance(node, ast.Name):
+                label = f"Var: {node.id}"
+            elif isinstance(node, ast.Constant):
+                val_repr = repr(node.value)
+                if len(val_repr) > 25:
+                    val_repr = val_repr[:22] + "..."
+                label = f"Const: {val_repr}"
+            elif isinstance(node, ast.Call):
+                func_name = getattr(node.func, 'attr', getattr(node.func, 'id', 'call'))
+                label = f"Call: {func_name}()"
+            elif isinstance(node, ast.Attribute):
+                label = f"Attr: .{node.attr}"
+            elif isinstance(node, ast.Assign):
+                label = "Assign (=)"
+
+            children = []
+            if depth < 6:
+                for field, value in ast.iter_fields(node):
+                    if isinstance(value, list):
+                        for item in value:
+                            if isinstance(item, ast.AST):
+                                children.append(node_to_dict(item, depth + 1))
+                    elif isinstance(value, ast.AST):
+                        children.append(node_to_dict(value, depth + 1))
+
+            result = {
+                "name": label,
+                "type": node_type,
+                "role": role,
+                "description": description,
+                "lineno": lineno,
+                "colOffset": col_offset
+            }
+            if children:
+                result["children"] = children
+            return result
+
+        return node_to_dict(tree)
 

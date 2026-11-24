@@ -10,7 +10,8 @@ import {
   ExternalLink,
   ChevronRight,
   Sparkles,
-  Brain
+  Brain,
+  GraduationCap
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -36,6 +37,8 @@ export const Header: React.FC = () => {
     if (path.startsWith('/remediation')) return 'AI Remediation Workspace';
     if (path.startsWith('/history')) return 'Scan History Archive';
     if (path.startsWith('/reports')) return 'Security Reports Center';
+    if (path.startsWith('/defense') || path.startsWith('/viva')) return 'Examiner Defense & Viva Center';
+    if (path.startsWith('/ast-visualizer') || path.startsWith('/ast')) return 'AST Syntax Tree Visualizer';
     if (path.startsWith('/model-datasets')) return 'AI Model & Datasets Intelligence';
     if (path.startsWith('/docs')) return 'Technical Documentation';
     if (path.startsWith('/settings')) return 'Application Settings';
@@ -57,6 +60,16 @@ export const Header: React.FC = () => {
 
       {/* Right Controls */}
       <div className="flex items-center gap-3">
+        {/* Examiner Viva Defense Hub Link */}
+        <Link
+          to="/defense"
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full border border-cyan-500/40 bg-cyan-950/40 text-cyan-300 text-[11px] font-mono hover:bg-cyan-900/40 hover:border-cyan-400 transition-all duration-200 shadow-sm shadow-cyan-950/40"
+          title="Examiner Defense Center: Live Benchmark Suite & Viva Voce Q&A"
+        >
+          <GraduationCap className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Examiner Viva Hub</span>
+        </Link>
+
         {/* ML & Dataset Status Badge */}
         <Link
           to="/model-datasets"

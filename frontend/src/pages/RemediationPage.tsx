@@ -20,7 +20,9 @@ import {
   Loader2, 
   ChevronRight,
   BookOpen,
-  Info
+  Info,
+  Download,
+  FileDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DiffEditor } from '@monaco-editor/react';
@@ -88,6 +90,39 @@ export const RemediationPage: React.FC = () => {
     setCopied(true);
     toast.success('Suggested fix copied to clipboard!');
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadPatch = () => {
+    if (!scan || !currentFinding) return;
+    const oldLines = currentFinding.vulnerableCode.split('\n').map(l => '-' + l).join('\n');
+    const newLines = editableProposedCode.split('\n').map(l => '+' + l).join('\n');
+    const patchContent = `--- a/${scan.fileName}
++++ b/${scan.fileName}
+@@ -${currentFinding.startLine},${currentFinding.endLine - currentFinding.startLine + 1} +${currentFinding.startLine},${editableProposedCode.split('\n').length} @@
+${oldLines}
+${newLines}
+`;
+    const blob = new Blob([patchContent], { type: 'text/x-diff' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fix-${currentFinding.cwe.toLowerCase()}-${scan.fileName}.patch`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Downloaded unified Git patch (.patch) file!');
+  };
+
+  const handleDownloadPatchedFile = () => {
+    if (!scan || !currentFinding) return;
+    const patchedFullSource = scan.sourceCode.replace(currentFinding.vulnerableCode, editableProposedCode);
+    const blob = new Blob([patchedFullSource], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `patched_${scan.fileName}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Downloaded remediated file: patched_${scan.fileName}`);
   };
 
   const handleRunValidation = async () => {
@@ -394,11 +429,29 @@ export const RemediationPage: React.FC = () => {
           <span>Notice: AI-generated fixes must be reviewed and tested by engineers prior to deployment.</span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleDownloadPatch}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-300 hover:text-white text-xs font-medium transition-colors"
+            title="Download unified git patch file"
+          >
+            <Download className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Export Git Patch (.patch)</span>
+          </button>
+
+          <button
+            onClick={handleDownloadPatchedFile}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-surface hover:bg-surface/80 border border-border text-slate-300 hover:text-white text-xs font-medium transition-colors"
+            title="Download full patched source file"
+          >
+            <FileDown className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Download Patched File</span>
+          </button>
+
           <button
             onClick={handleRunValidation}
             disabled={validating}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-surface hover:bg-surface/80 border border-border text-cyan-400 text-xs font-semibold transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-surface hover:bg-surface/80 border border-cyan-800/80 text-cyan-400 text-xs font-semibold transition-colors"
           >
             {validating ? (
               <>

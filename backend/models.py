@@ -98,3 +98,69 @@ class OsvQueryRequest(BaseModel):
     packageName: str
     ecosystem: Optional[str] = "PyPI"
     version: Optional[str] = None
+
+class AstParseRequest(BaseModel):
+    sourceCode: str
+    language: str = "python"
+    fileName: Optional[str] = "main.py"
+
+class AstNodeModel(BaseModel):
+    name: str
+    type: str
+    role: str # 'SAFE' | 'SOURCE' | 'TRANSFORM' | 'SINK'
+    description: str
+    lineno: Optional[int] = None
+    colOffset: Optional[int] = None
+    children: Optional[List[Dict[str, Any]]] = None
+
+class BenchmarkItemResult(BaseModel):
+    name: str
+    category: str
+    cwe: str
+    isVulnerable: bool
+    predictedVulnerable: bool
+    passed: bool
+    latencyMs: float
+    detectionSource: str
+
+class BenchmarkRunResponse(BaseModel):
+    totalTests: int
+    truePositives: int
+    falsePositives: int
+    trueNegatives: int
+    falseNegatives: int
+    accuracy: float
+    precision: float
+    recall: float
+    f1Score: float
+    averageLatencyMs: float
+    testedAt: str
+    results: List[BenchmarkItemResult]
+
+class CvssCalculateRequest(BaseModel):
+    attackVector: str = "N"
+    attackComplexity: str = "L"
+    privilegesRequired: str = "N"
+    userInteraction: str = "N"
+    scope: str = "U"
+    confidentiality: str = "H"
+    integrity: str = "H"
+    availability: str = "H"
+
+class CvssCalculateResponse(BaseModel):
+    baseScore: float
+    severity: str
+    vectorString: str
+    exploitabilityScore: float
+    impactScore: float
+
+class MultiFileItem(BaseModel):
+    fileName: str
+    sourceCode: str
+    language: Optional[str] = "python"
+
+class MultiFileScanRequest(BaseModel):
+    projectName: str
+    files: List[MultiFileItem]
+    options: Optional[ScanOptions] = Field(default_factory=ScanOptions)
+

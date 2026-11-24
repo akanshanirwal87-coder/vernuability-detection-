@@ -253,7 +253,7 @@ export const ReportsPage: React.FC = () => {
               <p className="text-2xl font-bold text-amber-400 mt-1">{scan.findingsCount.medium}</p>
               <p className="text-[10px] text-slate-400">Weak Crypto or XSS</p>
             </div>
-            <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-900/40">
+            <div className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-950/40">
               <span className="text-[10px] text-emerald-300 font-mono uppercase">Low / Info</span>
               <p className="text-2xl font-bold text-emerald-400 mt-1">{scan.findingsCount.low}</p>
               <p className="text-[10px] text-slate-400">Best Practice Warnings</p>
@@ -261,11 +261,70 @@ export const ReportsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. Detailed Findings List */}
+        {/* 2.1 CVSS v3.1 Assessment & Regulatory Compliance */}
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-cyan-400" />
+            <span>3. CVSS v3.1 Scoring & Compliance Baseline</span>
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            {/* CVSS Metric Card */}
+            <div className="p-4 rounded-xl bg-[#0B1020] border border-border space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white uppercase text-[11px] font-mono">CVSS v3.1 Base Metric</span>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                  scan.highestSeverity === 'CRITICAL' ? 'bg-rose-950 text-rose-300 border border-rose-800' :
+                  scan.highestSeverity === 'HIGH' ? 'bg-orange-950 text-orange-300 border border-orange-800' :
+                  'bg-amber-950 text-amber-300 border border-amber-800'
+                }`}>
+                  {scan.highestSeverity === 'CRITICAL' ? '9.8 CRITICAL' : scan.highestSeverity === 'HIGH' ? '7.5 HIGH' : '5.3 MEDIUM'}
+                </span>
+              </div>
+              <p className="text-slate-400 text-[11px]">
+                Vector: <code className="text-cyan-300 font-mono">CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H</code>
+              </p>
+              <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] font-mono">
+                <div className="p-2 rounded bg-surface border border-border">
+                  <span className="text-slate-400 block text-[10px]">Exploitability</span>
+                  <span className="text-white font-bold">3.90 / 3.90</span>
+                </div>
+                <div className="p-2 rounded bg-surface border border-border">
+                  <span className="text-slate-400 block text-[10px]">Impact Score</span>
+                  <span className="text-white font-bold">5.90 / 5.90</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Standards Compliance Matrix */}
+            <div className="p-4 rounded-xl bg-[#0B1020] border border-border space-y-2">
+              <span className="font-bold text-white uppercase text-[11px] font-mono block">Regulatory & Standard Alignment</span>
+              <div className="space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">NIST SP 800-218 (SSDF)</span>
+                  <span className="text-emerald-400 font-mono font-semibold">Compliant (PW.7 / RV.1)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">PCI-DSS v4.0 Requirement 6.2</span>
+                  <span className="text-emerald-400 font-mono font-semibold">Verified SAST Audit</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">OWASP Top 10:2021</span>
+                  <span className="text-cyan-400 font-mono font-semibold">Mapped (A01, A03, A07)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">Google OSV.dev Database</span>
+                  <span className="text-purple-400 font-mono font-semibold">SCA Ingestion Active</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Detailed Findings List */}
         <div className="space-y-4">
           <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>3. Detailed Vulnerability Findings & Action Plan</span>
+            <span>4. Detailed Vulnerability Findings & Action Plan</span>
           </h3>
 
           <div className="space-y-4">

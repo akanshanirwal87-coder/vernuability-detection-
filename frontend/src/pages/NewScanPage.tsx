@@ -14,11 +14,15 @@ import {
   FileCode,
   ShieldAlert,
   ChevronDown,
-  Info
+  Info,
+  FolderGit2,
+  Files,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { SAMPLE_CODE_SNIPPETS } from '../services/sampleCode';
 import type { SampleSnippet } from '../services/sampleCode';
-import { createScan } from '../services/scanService';
+import { createScan, scanProjectMultiFile } from '../services/scanService';
 import type { ScanRequest, ScanOptions } from '../types/scan';
 import { CodeScanline } from '../components/common/CodeScanline';
 import { toast } from 'sonner';
@@ -30,10 +34,59 @@ export const NewScanPage: React.FC = () => {
   const [projectName, setProjectName] = useState<string>('MySecurityAudit');
   const [fileName, setFileName] = useState<string>('auth_service.py');
   const [language, setLanguage] = useState<'python' | 'javascript' | 'typescript'>('python');
-  const [inputTab, setInputTab] = useState<'editor' | 'upload'>('editor');
+  const [inputTab, setInputTab] = useState<'editor' | 'upload' | 'multi-file'>('editor');
   const [sourceCode, setSourceCode] = useState<string>(SAMPLE_CODE_SNIPPETS[0].vulnerableCode);
   const [selectedSnippetId, setSelectedSnippetId] = useState<string>(SAMPLE_CODE_SNIPPETS[0].id);
   const [snippetMode, setSnippetMode] = useState<'vulnerable' | 'secure'>('vulnerable');
+
+  // Multi-File Project Batch State
+  interface ProjectBatchFile {
+    fileName: string;
+    language: 'python' | 'javascript' | 'typescript';
+    sourceCode: string;
+  }
+
+  const MULTI_FILE_PRESETS: Array<{ name: string; files: ProjectBatchFile[] }> = [
+    {
+      name: 'E-Commerce Backend Microservice (Python)',
+      files: [
+        {
+          fileName: 'app.py',
+          language: 'python',
+          sourceCode: `import os\nfrom flask import Flask, request, jsonify\nfrom database import query_user_records\n\napp = Flask(__name__)\n# VULNERABLE: Hardcoded production secret token\nJWT_SECRET = "super_secret_jwt_token_key_19283"\n\n@app.route("/user")\ndef get_user():\n    user_id = request.args.get("id")\n    return jsonify(query_user_records(user_id))\n\nif __name__ == "__main__":\n    app.run(debug=True)\n`
+        },
+        {
+          fileName: 'database.py',
+          language: 'python',
+          sourceCode: `import sqlite3\n\ndef query_user_records(user_id: str):\n    conn = sqlite3.connect("prod.db")\n    cursor = conn.cursor()\n    # VULNERABLE: Raw SQL string concatenation\n    query = "SELECT * FROM users WHERE id = '" + user_id + "'"\n    cursor.execute(query)\n    return cursor.fetchall()\n`
+        },
+        {
+          fileName: 'utils.py',
+          language: 'python',
+          sourceCode: `import os\n\ndef ping_healthcheck(host: str):\n    # VULNERABLE: OS command injection via os.system\n    cmd = "ping -c 1 " + host\n    os.system(cmd)\n    return True\n`
+        }
+      ]
+    },
+    {
+      name: 'Full Stack Node.js Web API (JavaScript)',
+      files: [
+        {
+          fileName: 'server.js',
+          language: 'javascript',
+          sourceCode: `const express = require('express');\nconst app = express();\nconst STRIPE_SECRET = "stripe_secret_key_prod_99214488219";\n\napp.use(express.json());\n\napp.post('/merge', (req, res) => {\n    // VULNERABLE: Prototype pollution\n    const obj = {};\n    obj['__proto__'][req.body.key] = req.body.val;\n    res.json({ status: 'ok' });\n});\n\napp.listen(3000);\n`
+        },
+        {
+          fileName: 'fileHandler.js',
+          language: 'javascript',
+          sourceCode: `const fs = require('fs');\n\nfunction readCustomerFile(userPath) {\n    // VULNERABLE: Path traversal via unsanitized file read\n    return fs.readFileSync('/var/data/' + userPath, 'utf8');\n}\nmodule.exports = { readCustomerFile };\n`
+        }
+      ]
+    }
+  ];
+
+  const [projectFiles, setProjectFiles] = useState<ProjectBatchFile[]>(MULTI_FILE_PRESETS[0].files);
+  const [selectedProjectPresetIdx, setSelectedProjectPresetIdx] = useState<number>(0);
+  const [activeProjectFileIdx, setActiveProjectFileIdx] = useState<number>(0);
 
   // Analysis Options
   const [options, setOptions] = useState<ScanOptions>({
@@ -148,6 +201,42 @@ export const NewScanPage: React.FC = () => {
       clearInterval(interval);
       setScanning(false);
       toast.error('Scan encountered an error. Check backend logs.');
+    }
+  };
+
+  const handleStartProjectScan = async () => {
+    if (projectFiles.length === 0) {
+      toast.error('Project must have at least one source file.');
+      return;
+    }
+
+    setScanning(true);
+    setActiveStageIndex(0);
+
+    const interval = setInterval(() => {
+      setActiveStageIndex(prev => {
+        if (prev < scanStages.length - 1) return prev + 1;
+        return prev;
+      });
+    }, 450);
+
+    try {
+      const result = await scanProjectMultiFile({
+        projectName: `${projectName} (Batch Repository)`,
+        files: projectFiles
+      });
+      clearInterval(interval);
+      setActiveStageIndex(scanStages.length - 1);
+
+      setTimeout(() => {
+        setScanning(false);
+        toast.success(`Project scan completed: ${result.findings.length} findings across ${projectFiles.length} files.`);
+        navigate(`/results/${result.id}`);
+      }, 500);
+    } catch (err) {
+      clearInterval(interval);
+      setScanning(false);
+      toast.error('Multi-file scan encountered an error.');
     }
   };
 
@@ -352,6 +441,17 @@ export const NewScanPage: React.FC = () => {
                   <Upload className="w-3.5 h-3.5" />
                   <span>Upload File</span>
                 </button>
+                <button
+                  onClick={() => setInputTab('multi-file')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    inputTab === 'multi-file'
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-surface'
+                  }`}
+                >
+                  <Files className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Multi-File Project Batch</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2 text-xs">
@@ -394,7 +494,7 @@ export const NewScanPage: React.FC = () => {
                 />
                 {scanning && <CodeScanline label="ANALYZING AST SYNTAX & SINK FLOWS..." />}
               </div>
-            ) : (
+            ) : inputTab === 'upload' ? (
               /* Tab 2: Drag and Drop Upload Area */
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -434,6 +534,94 @@ export const NewScanPage: React.FC = () => {
                   </div>
                 )}
               </div>
+            ) : (
+              /* Tab 3: Multi-File Project Batch Area */
+              <div className="h-[460px] flex flex-col bg-[#0B1020]">
+                {/* Project Preset Selector Header */}
+                <div className="p-2.5 bg-surface/50 border-b border-border flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-400">Project Preset:</span>
+                    {MULTI_FILE_PRESETS.map((p, pIdx) => (
+                      <button
+                        key={p.name}
+                        onClick={() => {
+                          setSelectedProjectPresetIdx(pIdx);
+                          setProjectFiles(p.files);
+                          setActiveProjectFileIdx(0);
+                        }}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                          selectedProjectPresetIdx === pIdx
+                            ? 'bg-primary text-white'
+                            : 'bg-card border border-border text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[10px] font-mono text-cyan-400">
+                    {projectFiles.length} files in batch
+                  </span>
+                </div>
+
+                {/* Split Project File Tree and Monaco Preview */}
+                <div className="flex-1 grid grid-cols-12 overflow-hidden">
+                  {/* File List (4 cols) */}
+                  <div className="col-span-4 border-r border-border/60 bg-[#0F172A] p-2 space-y-1 overflow-y-auto">
+                    <span className="text-[10px] text-slate-400 font-mono uppercase tracking-wider block px-2 mb-1">
+                      Project Files
+                    </span>
+                    {projectFiles.map((pf, idx) => (
+                      <div
+                        key={pf.fileName}
+                        onClick={() => setActiveProjectFileIdx(idx)}
+                        className={`flex items-center justify-between p-2 rounded-lg cursor-pointer text-xs transition-colors ${
+                          activeProjectFileIdx === idx
+                            ? 'bg-primary/20 text-cyan-400 border border-primary/40'
+                            : 'text-slate-300 hover:bg-surface/60'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <FileCode className="w-3.5 h-3.5 shrink-0" />
+                          <span className="font-mono text-[11px] truncate">{pf.fileName}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {pf.sourceCode.split('\n').length}L
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Code Editor for Active File (8 cols) */}
+                  <div className="col-span-8 relative">
+                    {projectFiles[activeProjectFileIdx] && (
+                      <Editor
+                        height="100%"
+                        language={projectFiles[activeProjectFileIdx].language}
+                        value={projectFiles[activeProjectFileIdx].sourceCode}
+                        theme="vs-dark"
+                        onChange={(val) => {
+                          const updated = [...projectFiles];
+                          updated[activeProjectFileIdx] = {
+                            ...updated[activeProjectFileIdx],
+                            sourceCode: val || ''
+                          };
+                          setProjectFiles(updated);
+                        }}
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: 12,
+                          lineNumbers: 'on',
+                          scrollBeyondLastLine: false,
+                          automaticLayout: true,
+                          padding: { top: 8, bottom: 8 }
+                        }}
+                      />
+                    )}
+                    {scanning && <CodeScanline label="SCANNING MULTI-FILE PROJECT REPOSITORY..." />}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 
@@ -441,23 +629,31 @@ export const NewScanPage: React.FC = () => {
           <div className="flex items-center justify-between p-4 rounded-xl bg-card border border-border">
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <ShieldAlert className="w-4 h-4 text-amber-400" />
-              <span>Untrusted input: Code is parsed in memory and never executed on the host.</span>
+              <span>
+                {inputTab === 'multi-file' 
+                  ? `Batch Engine: Will scan ${projectFiles.length} files simultaneously with AST + ML.`
+                  : 'Untrusted input: Code is parsed in memory and never executed on the host.'}
+              </span>
             </div>
 
             <button
-              onClick={handleStartScan}
-              disabled={scanning || !sourceCode.trim()}
+              onClick={inputTab === 'multi-file' ? handleStartProjectScan : handleStartScan}
+              disabled={scanning || (inputTab === 'multi-file' ? projectFiles.length === 0 : !sourceCode.trim())}
               className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5 shadow-md shadow-blue-500/20 hover:shadow-blue-500/35"
             >
               {scanning ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-white" />
-                  <span>Analyzing Code...</span>
+                  <span>Analyzing Project...</span>
                 </>
               ) : (
                 <>
                   <Play className="w-4 h-4 fill-current" />
-                  <span>Start Security Scan</span>
+                  <span>
+                    {inputTab === 'multi-file' 
+                      ? `Scan Multi-File Project (${projectFiles.length} Files)` 
+                      : 'Start Security Scan'}
+                  </span>
                 </>
               )}
             </button>

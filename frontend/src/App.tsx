@@ -11,6 +11,8 @@ import { ReportsPage } from './pages/ReportsPage';
 import { DocsPage } from './pages/DocsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ModelDatasetsPage } from './pages/ModelDatasetsPage';
+import { VivaDefensePage } from './pages/VivaDefensePage';
+import { AstVisualizerPage } from './pages/AstVisualizerPage';
 
 export function App() {
   return (
@@ -27,6 +29,10 @@ export function App() {
           <Route path="/results" element={<Navigate to="/results/scan-demo-01" replace />} />
           <Route path="/remediation/:scanId" element={<RemediationPage />} />
           <Route path="/remediation" element={<Navigate to="/remediation/scan-demo-01" replace />} />
+          <Route path="/ast-visualizer" element={<AstVisualizerPage />} />
+          <Route path="/ast" element={<Navigate to="/ast-visualizer" replace />} />
+          <Route path="/defense" element={<VivaDefensePage />} />
+          <Route path="/viva" element={<Navigate to="/defense" replace />} />
           <Route path="/model-datasets" element={<ModelDatasetsPage />} />
           <Route path="/history" element={<ScanHistoryPage />} />
           <Route path="/reports/:scanId" element={<ReportsPage />} />

@@ -125,6 +125,94 @@ class JavaScriptScanner:
                     "validationStatus": "NOT_VALIDATED"
                 })
 
+            # 4. Prototype Pollution (CWE-1321)
+            if re.search(r'(\b__proto__\b|\[\s*["\']__proto__["\']\s*\]|\[\s*["\']constructor["\']\s*\]|\[\s*["\']prototype["\']\s*\])', line_trimmed):
+                sinks_count += 1
+                self.findings.append({
+                    "id": f"fnd-proto-{uuid.uuid4().hex[:6]}",
+                    "title": "Prototype Pollution via Object Property Assignment",
+                    "category": "COMMAND_INJECTION",
+                    "severity": "CRITICAL",
+                    "cwe": "CWE-1321",
+                    "owaspCategory": "A03:2021-Injection",
+                    "file": self.file_name,
+                    "startLine": line_no,
+                    "endLine": line_no,
+                    "confidence": 0.95,
+                    "description": "Direct modification of Object.prototype via __proto__ or constructor.prototype alters global application behavior.",
+                    "evidence": line_trimmed,
+                    "impact": "Can cause denial of service, bypass authentication checks, or lead to remote code execution in Node.js applications.",
+                    "vulnerableCode": line_trimmed,
+                    "remediationCode": "const safeObj = Object.create(null); // or validate key !== '__proto__' && key !== 'constructor'",
+                    "remediationExplanation": "Use Object.create(null) for dictionary objects with no prototype, or validate and freeze prototypes.",
+                    "bestPractices": [
+                        "Use Object.freeze(Object.prototype) to prevent mutation.",
+                        "Block assignment to properties named '__proto__', 'constructor', and 'prototype'."
+                    ],
+                    "references": ["https://cwe.mitre.org/data/definitions/1321.html"],
+                    "remediationStatus": "OPEN",
+                    "validationStatus": "NOT_VALIDATED"
+                })
+
+            # 5. Node.js Path Traversal in File Operations (CWE-22)
+            if re.search(r'\bfs\.(readFile|readFileSync|createReadStream|writeFile|unlink)\s*\(', line_trimmed):
+                if '+' in line_trimmed or '${' in line_trimmed or 'req.' in line_trimmed or 'params' in line_trimmed or 'query' in line_trimmed:
+                    sinks_count += 1
+                    self.findings.append({
+                        "id": f"fnd-pathjs-{uuid.uuid4().hex[:6]}",
+                        "title": "Path Traversal in Node.js File System Call",
+                        "category": "PATH_TRAVERSAL",
+                        "severity": "HIGH",
+                        "cwe": "CWE-22",
+                        "owaspCategory": "A01:2021-Broken Access Control",
+                        "file": self.file_name,
+                        "startLine": line_no,
+                        "endLine": line_no,
+                        "confidence": 0.92,
+                        "description": "File system access invoked with user-controlled input without path normalization or boundary containment.",
+                        "evidence": line_trimmed,
+                        "impact": "Enables attackers to traverse directories and read or overwrite arbitrary sensitive system files.",
+                        "vulnerableCode": line_trimmed,
+                        "remediationCode": "const safePath = path.resolve(BASE_DIR, path.basename(userPath));\nif (!safePath.startsWith(BASE_DIR)) throw new Error('Access denied');",
+                        "remediationExplanation": "Enforce strict root path validation using path.resolve and path.basename.",
+                        "bestPractices": [
+                            "Use path.basename to strip directory traversal sequences.",
+                            "Verify resolved path starts with allowed base directory."
+                        ],
+                        "references": ["https://cwe.mitre.org/data/definitions/22.html"],
+                        "remediationStatus": "OPEN",
+                        "validationStatus": "NOT_VALIDATED"
+                    })
+
+            # 6. Catastrophic Regex Backtracking / ReDoS (CWE-1333)
+            if re.search(r'/(?:\([^\)]*\+[\)]*\+)|(?:\([^\)]*\*[\)]*\*)/', line_trimmed):
+                sinks_count += 1
+                self.findings.append({
+                    "id": f"fnd-redos-{uuid.uuid4().hex[:6]}",
+                    "title": "Regular Expression Denial of Service (ReDoS) Risk",
+                    "category": "COMMAND_INJECTION",
+                    "severity": "MEDIUM",
+                    "cwe": "CWE-1333",
+                    "owaspCategory": "A05:2021-Security Misconfiguration",
+                    "file": self.file_name,
+                    "startLine": line_no,
+                    "endLine": line_no,
+                    "confidence": 0.89,
+                    "description": "Nested quantifier detected in regular expression (e.g. (a+)+), triggering exponential backtracking on crafted input.",
+                    "evidence": line_trimmed,
+                    "impact": "Exhausts CPU resources, locking the Node.js event loop and rendering the service unresponsive.",
+                    "vulnerableCode": line_trimmed,
+                    "remediationCode": "const safeRegex = /^[a-zA-Z0-9_-]+$/; // simplify without nested quantifiers",
+                    "remediationExplanation": "Refactor regular expressions to avoid overlapping and nested quantifiers, or use non-backtracking regex engines.",
+                    "bestPractices": [
+                        "Avoid nested repetitions like (a+)+ or (x*)*.",
+                        "Use RE2 or timeout-bounded regex validators."
+                    ],
+                    "references": ["https://cwe.mitre.org/data/definitions/1333.html"],
+                    "remediationStatus": "OPEN",
+                    "validationStatus": "NOT_VALIDATED"
+                })
+
         ast_summary = {
             "nodesCount": nodes_count,
             "functionsFound": max(1, len(re.findall(r'\bfunction\b|\=\>|\bclass\b', self.source_code))),
@@ -133,4 +221,54 @@ class JavaScriptScanner:
         }
 
         return self.findings, ast_summary
+
+    def get_ast_tree(self) -> Dict[str, Any]:
+        """Produce a hierarchical AST-like node structure from JavaScript code."""
+        children = []
+        for idx, line in enumerate(self.lines):
+            line_trimmed = line.strip()
+            if not line_trimmed:
+                continue
+            line_no = idx + 1
+            role = "SAFE"
+            desc = "Statement"
+
+            if any(k in line_trimmed for k in ("eval(", "child_process", "exec(", "innerHTML", "__proto__", "fs.read")):
+                role = "SINK"
+                desc = "Critical execution sink or DOM write"
+            elif any(k in line_trimmed for k in ("+", "${", "concat", "params", "query")):
+                role = "TRANSFORM"
+                desc = "Dynamic string concatenation or property transform"
+            elif any(k in line_trimmed for k in ("req.body", "req.query", "urlParams", "userInput", "target")):
+                role = "SOURCE"
+                desc = "Untrusted input source"
+
+            node_name = "Statement"
+            if line_trimmed.startswith("function ") or "=>" in line_trimmed:
+                node_name = f"Function: {line_trimmed[:30]}"
+            elif line_trimmed.startswith("import ") or line_trimmed.startswith("const {"):
+                node_name = f"Import: {line_trimmed[:30]}"
+            elif line_trimmed.startswith("const ") or line_trimmed.startswith("let ") or line_trimmed.startswith("var "):
+                node_name = f"Decl: {line_trimmed[:30]}"
+            else:
+                node_name = line_trimmed[:35]
+
+            children.append({
+                "name": node_name,
+                "type": "JSStatement",
+                "role": role,
+                "description": desc,
+                "lineno": line_no,
+                "colOffset": 0
+            })
+
+        return {
+            "name": f"Program ({self.file_name})",
+            "type": "Program",
+            "role": "SAFE",
+            "description": "Top-level JavaScript/TypeScript module",
+            "lineno": 1,
+            "colOffset": 0,
+            "children": children[:30] # Limit to top 30 statements for clear display
+        }
 

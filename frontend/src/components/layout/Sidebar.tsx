@@ -14,7 +14,8 @@ import {
   ChevronRight,
   GraduationCap,
   Brain,
-  Database
+  Database,
+  Layers
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -29,6 +30,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
     { name: 'Scan History', path: '/history', icon: History },
     { name: 'Vulnerabilities', path: '/results/scan-demo-01', icon: ShieldAlert },
     { name: 'AI Remediation', path: '/remediation/scan-demo-01', icon: FileCode2 },
+    { name: 'AST Visualizer', path: '/ast-visualizer', icon: Layers, badge: 'AST' },
+    { name: 'Examiner Defense', path: '/defense', icon: GraduationCap, badge: 'VIVA' },
     { name: 'Model & Datasets', path: '/model-datasets', icon: Brain, badge: 'OSV+ME' },
     { name: 'Reports', path: '/reports', icon: FileText },
     { name: 'Documentation', path: '/docs', icon: BookOpen },

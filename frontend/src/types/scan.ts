@@ -255,3 +255,99 @@ export interface ManageEngineAdvisoriesResponse {
   totalAdvisories: number;
   advisories: ManageEngineAdvisoryItem[];
 }
+
+export interface AstTreeNode {
+  name: string;
+  type: string;
+  role: 'SAFE' | 'SOURCE' | 'TRANSFORM' | 'SINK';
+  description: string;
+  lineno?: number;
+  colOffset?: number;
+  children?: AstTreeNode[];
+}
+
+export interface AstParseResponse {
+  language: string;
+  fileName: string;
+  summary: {
+    nodesCount: number;
+    functionsFound: number;
+    importsFound: string[];
+    sinksIdentified: number;
+  };
+  findingsCount: number;
+  findings: VulnerabilityFinding[];
+  tree: AstTreeNode;
+}
+
+export interface BenchmarkItem {
+  name: string;
+  category: string;
+  cwe: string;
+  isVulnerable: boolean;
+  predictedVulnerable: boolean;
+  passed: boolean;
+  latencyMs: number;
+  detectionSource: string;
+}
+
+export interface BenchmarkRunResponse {
+  totalTests: number;
+  truePositives: number;
+  falsePositives: number;
+  trueNegatives: number;
+  falseNegatives: number;
+  accuracy: number;
+  precision: number;
+  recall: number;
+  f1Score: number;
+  averageLatencyMs: number;
+  testedAt: string;
+  results: BenchmarkItem[];
+}
+
+export interface CvssCalculationRequest {
+  attackVector: string;
+  attackComplexity: string;
+  privilegesRequired: string;
+  userInteraction: string;
+  scope: string;
+  confidentiality: string;
+  integrity: string;
+  availability: string;
+}
+
+export interface CvssCalculationResponse {
+  baseScore: number;
+  severity: Severity;
+  vectorString: string;
+  exploitabilityScore: number;
+  impactScore: number;
+}
+
+export interface VivaQuestionItem {
+  id: string;
+  category: string;
+  question: string;
+  answer: string;
+  formula?: string;
+}
+
+export interface VivaBankResponse {
+  institution: string;
+  degree: string;
+  projectTitle: string;
+  students: Array<{ name: string; roll: string }>;
+  supervisors: string[];
+  questions: VivaQuestionItem[];
+}
+
+export interface MultiFileProjectScanRequest {
+  projectName: string;
+  files: Array<{
+    fileName: string;
+    sourceCode: string;
+    language?: 'python' | 'javascript' | 'typescript';
+  }>;
+}
+

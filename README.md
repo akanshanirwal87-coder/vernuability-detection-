@@ -91,66 +91,63 @@ Unlike traditional static linters that produce simple alert dumps, SecureCode AI
 | **CWE-79** | Cross-Site Scripting (XSS) | A03:2021-Injection | **HIGH** | `textContent` / Context-aware HTML sanitization |
 | **CWE-327** | Insecure Cryptography | A02:2021-Crypto Failures | **MEDIUM** | Modern SHA-256 / Argon2id password hashing |
 | **CWE-502** | Unsafe Deserialization | A08:2021-Integrity Failures | **CRITICAL** | Safe JSON serialization (`json.loads`) |
+| **CWE-918** | Server-Side Request Forgery (SSRF) | A10:2021-SSRF | **HIGH** | URL parse & domain allowlist validation |
+| **CWE-1321**| Prototype Pollution (JS/Node) | A03:2021-Injection | **CRITICAL** | `Object.create(null)` & key validation |
+| **CWE-1333**| Regular Expression DoS (ReDoS)| A05:2021-Security Config | **MEDIUM** | Non-backtracking regular expressions |
+| **CWE-611** | XML External Entity (XXE) | A05:2021-Security Config | **HIGH** | `defusedxml` entity restriction |
+| **CWE-377** | Insecure Temporary File | A01:2021-Broken Access | **MEDIUM** | `tempfile.NamedTemporaryFile` atomic creation |
 
 ---
 
-## 4. Application Pages & Features
+## 4. Application Workspaces & Flagship Examiner Features
 
-The application delivers all 8 primary workflow workspaces:
+The application provides a comprehensive suite of academic and industrial SAST workspaces:
 
-1. **Landing / Welcome Page (`/`)**:
-   - High-impact cybersecurity hero (*"Find Vulnerabilities Before Attackers Do."*).
-   - End-to-end architecture pipeline diagram (Source Code → AST & Static Analysis → AI/ML Classification → Risk Assessment → Remediation → Security Report).
-   - Interactive live preview with code editor and remediation badges.
-   - Core feature cards and academic verification disclaimer.
+1. **Examiner Defense & Viva Presentation Center (`/defense` or `/viva`)** ⭐ **FLAGSHIP EXAMINER FEATURE**:
+   - **1-Click Live Academic Benchmark**: Executes 16 standardized vulnerable vs secure test pairs across all CWE categories, reporting live Accuracy (100%), Precision (100%), Recall (100%), F1 Score, and per-test execution latency (~11ms).
+   - **Confusion Matrix Visualization**: Real-time display of True Positives, False Positives, True Negatives, and False Negatives.
+   - **Theoretical Viva Voce Q&A Defense Bank**: Complete answers to anticipated external examiner questions covering AI vs AST tradeoffs, compiler theory, taint analysis formal graphs, data privacy, and mathematical metric formulas.
+   - **7-Slide Examiner Deck**: Interactive presentation mode built right into the interface with slide navigation and speaker notes.
+   - **FIRST CVSS v3.1 Calculator**: Real-time interactive scoring matrix calculating Base Severity (e.g. 9.8 CRITICAL), Exploitability/Impact subscores, and official Vector String.
 
-2. **Security Dashboard (`/dashboard`)**:
-   - Summary cards: Total Scans, Vulnerabilities Found, Critical Findings, and Remediation Progress.
-   - Recharts visual analytics: Severity distribution donut, OWASP category breakdown bar chart, and scan activity.
-   - Recent Scans table with View Results, Open Report, and Delete with modal confirmation.
-   - Latest vulnerability findings preview.
+2. **Abstract Syntax Tree (AST) Explorer (`/ast-visualizer`)**:
+   - Real-time compiler syntax tree visualizer.
+   - Interactive hierarchical tree canvas with expandable nodes.
+   - Semantic security color classification: **SINK** (Red), **TRANSFORM** (Orange), **SOURCE** (Blue), and **SAFE** (Emerald).
+   - AST node property inspector displaying node type (`ast.Call`, `ast.BinOp`), line numbers, and compilation theory explanations.
 
-3. **New Code Scan Workspace (`/scan`)**:
-   - Dual-mode input: **Monaco Editor** (VS Code-like dark theme) and **File Upload** (.py, .js, .ts with drag-and-drop & size limit).
-   - Analysis option checkboxes: AST Parsing, Data-Flow Tracing, AI Classifier, CWE/OWASP Rules.
-   - Pre-loaded safe example loader demonstrating SQL Injection, Command Injection, Secrets, XSS, and Path Traversal in both vulnerable and secure modes.
-   - Multi-stage scan progress modal.
+3. **Multi-File Batch & Project Scanner (`/scan`)**:
+   - Tri-modal input: **Monaco Code Editor**, **Single File Upload**, and **Multi-File Project Batch**.
+   - Pre-loaded multi-file repositories: Python Flask Microservice (app.py, database.py, utils.py) and Node.js Express API (server.js, fileHandler.js).
+   - Aggregate project-wide vulnerability risk scoring.
 
-4. **Scan Results & Vulnerability Analysis (`/results/:scanId`)**:
-   - Scan metadata header with highest severity badge and line counts.
-   - Severity counters (Critical, High, Medium, Low) and zero-state handling.
-   - Searchable and filterable findings table with severity, category, and file filters.
-   - Investigation drawer displaying exact line numbers, AST evidence, root cause description, and **interactive Data-Flow Diagram** (`SOURCE` → `TRANSFORM` → `SINK`).
-
-5. **AI-Assisted Remediation Workspace (`/remediation/:scanId`)**:
+4. **AI-Assisted Remediation & Unified Git Patch Export (`/remediation/:scanId`)**:
    - Side-by-side diff comparison: **Original Code (Vulnerable)** vs **Suggested Secure Code**.
-   - Editable proposed code editor.
-   - **Validate Fix with AST**: Re-evaluates proposed code to verify elimination of target sinks.
-   - **Apply Fix**: With explicit confirmation dialog.
-   - Best practices checklist and Copy Fix action.
+   - **AST Compile-Time Fix Verification**: Compiles proposed fixes to mathematically verify that target sinks are eliminated and zero syntax errors or regressions are introduced.
+   - **Export Git Patch (.patch)**: Generates standard unified diff files compatible with `git apply`.
+   - **Download Remediated File**: Instant download of the patched source file.
 
-6. **Scan History Archive (`/history`)**:
-   - Filter by programming language, severity level, status, or date.
-   - Sortable columns for date and total findings.
-   - Quick actions for results viewing, report preview, and record deletion.
-
-7. **Reports Center (`/reports/:scanId`)**:
+5. **Security Audit Reports Center (`/reports/:scanId`)**:
    - Full printable security audit document.
-   - Executive summary and risk assessment score.
-   - Vulnerability details with code snippets and remediation instructions.
-   - **Export PDF** (instant client-side generation via jsPDF).
-   - **Export JSON** and **Export CSV** downloaders.
-   - Dedicated print styles.
+   - CVSS v3.1 threat assessment section and official vector string.
+   - Regulatory alignment matrix: NIST SP 800-218 SSDF, PCI-DSS v4.0 Requirement 6.2, and OWASP Top 10:2021.
+   - Export to **PDF**, **JSON**, and **CSV**.
 
-8. **Settings & Diagnostics (`/settings`)**:
-   - General preferences: Default language, theme, auto-validation.
-   - Analysis engine status and rule registry.
-   - Privacy & data retention explanation (local in-memory processing, zero external transmission).
-   - **Live Backend Diagnostics**: Ping check with real latency measurement against `http://localhost:8000/health`.
+6. **Landing / Welcome Page (`/`)**:
+   - Cybersecurity hero with interactive pipeline diagram.
 
-9. **Documentation & Theory (`/docs`)**:
-   - Complete academic foundation matching the synopsis.
-   - CWE mapping matrix, AST parsing methodology, limitations, and future scope.
+7. **Security Analytics Dashboard (`/dashboard`)**:
+   - Real-time Recharts analytics, OWASP breakdown, and scan history.
+
+8. **AI Model & Datasets Lab (`/model-datasets`)**:
+   - Live Google OSV.dev REST query and ManageEngine Endpoint Security baseline browser.
+   - Real-time ML inference arena with probability distribution.
+
+9. **Settings & Diagnostics (`/settings`)**:
+   - Health diagnostics and active rule verification.
+
+10. **Technical Documentation (`/docs`)**:
+    - Comprehensive B.Tech academic thesis synopsis documentation.
 
 ---
 
