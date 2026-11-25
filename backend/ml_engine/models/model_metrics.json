@@ -1,7 +1,7 @@
 {
   "modelName": "SecureCode-VulnNet (Hybrid TF-IDF + Security Sink Ensemble)",
   "version": "2.1.0-leakfree",
-  "trainedAt": "2026-11-25T16:39:29.310913+00:00",
+  "trainedAt": "2026-11-25T17:08:09.072862+00:00",
   "randomSeed": 42,
   "datasetHash": "34d3bbb332c66583",
   "totalSamples": 243,
@@ -241,9 +241,9 @@
     }
   ],
   "artifactChecksums": {
-    "vectorizer_sha256": "368bb5a2771303c44f3d0fd4fb0b2776ee2847c9930c7d33ff3280fafcc06df0",
+    "vectorizer_sha256": "429a9f4de7ad7ed3f430440e41740bcf0c7b9ad5649e4c59fe8408c82dd5d22b",
     "vuln_detector_sha256": "215482ee054d6fca6e62bab6cd7392f1ec48f9c232b3f7eef137cebaef731a41",
     "cwe_classifier_sha256": "c03857b4225af860d8668fda7e71c125319b6501f911a772cf0a3c7303ebd7de"
   },
-  "savedAt": "2026-11-25T16:39:29.591946+00:00"
+  "savedAt": "2026-11-25T17:08:09.241162+00:00"
 }
