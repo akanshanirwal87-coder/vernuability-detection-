@@ -22,6 +22,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.svm import LinearSVC
+from sklearn.calibration import CalibratedClassifierCV
 
 from data.dataset_collector import generate_training_dataset, DATASET_PATH
 from ml_engine.feature_extractor import SecurityFeatureExtractor, code_tokenizer, FEATURE_NAMES
@@ -106,11 +108,44 @@ def train_and_evaluate(random_seed: int = RANDOM_SEED) -> dict:
         class_weight="balanced",
         random_state=random_seed,
     )
+    svm_detector = CalibratedClassifierCV(
+        LinearSVC(C=1.0, class_weight="balanced", random_state=random_seed, max_iter=2000)
+    )
+
+    # Train candidates
+    rf_detector.fit(X_train, y_train)
+    lr_detector.fit(X_train, y_train)
+    svm_detector.fit(X_train, y_train)
+
     vuln_detector = VotingClassifier(
         estimators=[("rf", rf_detector), ("lr", lr_detector)],
         voting="soft",
     )
     vuln_detector.fit(X_train, y_train)
+
+    # Candidate model comparison on untouched test set
+    model_candidates = {
+        "LogisticRegression": lr_detector,
+        "RandomForest": rf_detector,
+        "LinearSVM": svm_detector,
+        "CalibratedEnsemble": vuln_detector,
+    }
+    model_comparison = {}
+    print("\n--- Model Benchmark Comparison (Untouched Test Partition) ---")
+    for name, model in model_candidates.items():
+        m_pred = model.predict(X_test)
+        m_prob = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else None
+        m_eval = ModelEvaluator.evaluate_binary_detector(y_test, m_pred, m_prob)
+        model_comparison[name] = {
+            "accuracy": m_eval["accuracy"],
+            "precision": m_eval["precision"],
+            "recall": m_eval["recall"],
+            "f1Score": m_eval["f1Score"],
+            "macroF1": m_eval["macroF1"],
+            "falsePositiveRate": m_eval.get("falsePositiveRate", 0.0),
+        }
+        print(f"[{name:18}] Acc: {m_eval['accuracy']:5.2f}% | P: {m_eval['precision']:5.2f}% | R: {m_eval['recall']:5.2f}% | F1: {m_eval['f1Score']:5.2f}% | FPR: {m_eval.get('falsePositiveRate', 0.0):.2f}%")
+    print("-------------------------------------------------------------\n")
 
     # Validation evaluation for calibration
     val_pred = vuln_detector.predict(X_val)
@@ -186,9 +221,11 @@ def train_and_evaluate(random_seed: int = RANDOM_SEED) -> dict:
         "macroRecall": test_metrics["macroRecall"],
         "macroF1": test_metrics["macroF1"],
         "weightedF1": test_metrics["weightedF1"],
+        "falsePositiveRate": test_metrics.get("falsePositiveRate", 0.0),
         "prAuc": test_metrics["prAuc"],
         "rocAuc": test_metrics["rocAuc"],
         "confusionMatrix": test_metrics["confusionMatrix"],
+        "modelComparison": model_comparison,
         # Validation Metrics
         "validationMetrics": val_metrics,
         # CWE Classifier Metrics

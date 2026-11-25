@@ -490,6 +490,16 @@ export const ScanResultsPage: React.FC = () => {
                             AST + AI
                           </span>
                         )}
+                        {finding.detectionSource === 'HYBRID_TAINT_AND_AST' && (
+                          <span className="font-mono text-[9px] text-cyan-300 bg-cyan-950/60 border border-cyan-800/40 px-1.5 py-0.5 rounded">
+                            Taint + AST
+                          </span>
+                        )}
+                        {finding.detectionSource === 'TAINT_ANALYSIS' && (
+                          <span className="font-mono text-[9px] text-teal-300 bg-teal-950/60 border border-teal-800/40 px-1.5 py-0.5 rounded">
+                            Taint Flow
+                          </span>
+                        )}
                         {finding.detectionSource === 'OSV_DATABASE' && (
                           <span className="font-mono text-[9px] text-blue-300 bg-blue-950/60 border border-blue-800/40 px-1.5 py-0.5 rounded">
                             OSV.dev

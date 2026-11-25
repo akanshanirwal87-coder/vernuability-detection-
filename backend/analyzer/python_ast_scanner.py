@@ -70,6 +70,7 @@ class PythonAstScanner:
         self._check_path_traversal(tree)
         self._check_insecure_crypto(tree)
         self._check_unsafe_deserialization(tree)
+        self._check_dynamic_eval(tree)
         self._check_ssrf(tree)
         self._check_insecure_config(tree)
         self._check_insecure_temp_file(tree)
@@ -146,6 +147,12 @@ class PythonAstScanner:
                                         "description": f"Dynamic query string passed to `{func_name}()` without parameterized bindings."
                                     }
                                 ]
+
+                        if is_vuln:
+                            # Verify if input was sanitized via int() or float() casting
+                            surrounding = "\n".join(self.lines[max(0, node.lineno - 6):node.lineno])
+                            if "int(" in surrounding or "float(" in surrounding:
+                                is_vuln = False
 
                         if is_vuln:
                             start_l = node.lineno
@@ -322,6 +329,12 @@ class PythonAstScanner:
                                 is_vuln = True
 
                         if is_vuln:
+                            # Verify if path is protected by basename or containment check
+                            surrounding = "\n".join(self.lines[max(0, node.lineno - 6):node.lineno])
+                            if "basename(" in surrounding or "startswith(" in surrounding or "secure_filename" in surrounding:
+                                is_vuln = False
+
+                        if is_vuln:
                             self.sinks_identified += 1
                             evidence = self._get_line_code(node.lineno, node.lineno)
                             self.findings.append({
@@ -410,6 +423,58 @@ class PythonAstScanner:
                                 "Use JSON or cryptographic HMAC signatures if binary serialization is required."
                             ],
                             "references": ["https://cwe.mitre.org/data/definitions/502.html"],
+                            "remediationStatus": "OPEN",
+                            "validationStatus": "NOT_VALIDATED"
+                        })
+
+    def _check_dynamic_eval(self, tree: ast.AST):
+        """Detect Unsafe Dynamic Code Evaluation (CWE-95) via eval, exec, compile."""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func_name = ""
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+                    if node.func.value.id == "builtins":
+                        func_name = node.func.attr
+
+                if func_name in ("eval", "exec") and node.args:
+                    arg0 = node.args[0]
+                    # If evaluating a non-constant expression or variable
+                    is_vuln = False
+                    if not (isinstance(arg0, ast.Constant) and isinstance(arg0.value, (int, float))):
+                        # Even if string constant, eval() is dangerous if dynamic, but constant string like eval("1+1") is test
+                        # Mark vulnerable if dynamic or variable
+                        if self._is_dynamic_string(arg0) or isinstance(arg0, ast.Name):
+                            is_vuln = True
+                        elif isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
+                            is_vuln = True  # Passing string to eval() is hazardous
+
+                    if is_vuln:
+                        self.sinks_identified += 1
+                        evidence = self._get_line_code(node.lineno, node.lineno)
+                        self.findings.append({
+                            "id": f"fnd-eval-{uuid.uuid4().hex[:6]}",
+                            "title": f"Unsafe Dynamic Code Evaluation via {func_name}()",
+                            "category": "COMMAND_INJECTION",
+                            "severity": "CRITICAL",
+                            "cwe": "CWE-95",
+                            "owaspCategory": "A03:2021-Injection",
+                            "file": self.file_name,
+                            "startLine": node.lineno,
+                            "endLine": node.end_lineno or node.lineno,
+                            "confidence": 0.98,
+                            "description": f"Invocation of `{func_name}()` enables execution of arbitrary Python code.",
+                            "evidence": evidence,
+                            "impact": "Remote code execution, system takeover, or unauthorized data access.",
+                            "vulnerableCode": evidence,
+                            "remediationCode": "import ast\nsafe_data = ast.literal_eval(payload)",
+                            "remediationExplanation": "Use ast.literal_eval() for parsing literal structures or implement a lookup dictionary for operations.",
+                            "bestPractices": [
+                                "Never execute arbitrary code using eval() or exec().",
+                                "Use ast.literal_eval() for safely evaluating Python expressions containing literals."
+                            ],
+                            "references": ["https://cwe.mitre.org/data/definitions/95.html"],
                             "remediationStatus": "OPEN",
                             "validationStatus": "NOT_VALIDATED"
                         })

@@ -51,7 +51,9 @@ export interface VulnerabilityFinding {
   remediationStatus: 'OPEN' | 'REMEDIATED' | 'IGNORED';
   validationStatus: ValidationStatus;
   validationNotes?: string;
-  detectionSource?: 'AST' | 'ML_MODEL' | 'HYBRID_AST_AND_ML' | 'OSV_DATABASE' | 'MANAGEENGINE_BASELINE';
+  detectionSource?: 'AST' | 'ML_MODEL' | 'HYBRID_AST_AND_ML' | 'HYBRID_TAINT_AND_AST' | 'TAINT_ANALYSIS' | 'STATIC_RULES' | 'OSV_DATABASE' | 'MANAGEENGINE_BASELINE' | string;
+  detectionMethods?: string[];
+  confidenceRationale?: string;
   cve?: string;
 }
 

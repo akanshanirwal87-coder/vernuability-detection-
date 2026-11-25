@@ -13,6 +13,8 @@ from analyzer.javascript_scanner import JavaScriptScanner
 from analyzer.dependency_parser import DependencyParser
 from analyzer.sca_scanner import sca_scanner
 from analyzer.manageengine_client import manageengine_client
+from analyzer.hybrid_scanner import HybridScanner
+from analyzer.risk_assessment import RiskAssessment
 from ml_engine.classifier import vulnerability_classifier
 
 
@@ -61,7 +63,8 @@ class ScanService:
         # Check if file is a dependency manifest
         is_manifest = DependencyParser.is_manifest_file(file_name) or language.lower() in ("manifest", "requirements", "toml", "lockfile")
 
-        # 1. AST Analysis or Manifest SCA
+        # 1. Multi-Technique Hybrid Analysis or Manifest SCA
+        me_triggered = []
         if is_manifest:
             findings = sca_scanner.scan_manifest(file_name, source_code, scan_id)
             ast_summary = {
@@ -70,90 +73,34 @@ class ScanService:
                 "importsFound": [f.get("packageName") for f in findings if f.get("packageName")],
                 "sinksIdentified": 0,
             }
-        elif language.lower() == "python":
-            scanner = PythonAstScanner(source_code, file_name=file_name)
-            findings, ast_summary = scanner.scan()
-        elif language.lower() in ("javascript", "typescript"):
-            scanner = JavaScriptScanner(source_code, file_name=file_name)
-            findings, ast_summary = scanner.scan()
+            risk_report = RiskAssessment.evaluate_risk(findings).to_dict()
+        elif language.lower() in ("python", "javascript", "typescript"):
+            scanner = HybridScanner(
+                source_code=source_code,
+                language=language,
+                file_name=file_name,
+                enable_ast=True,
+                enable_taint=True,
+                enable_rules=enable_rules,
+                enable_ml=enable_ai,
+            )
+            findings, ast_summary, risk_report = scanner.scan()
+            if enable_rules:
+                me_rules = manageengine_client.check_code_against_rules(source_code, language)
+                me_triggered = me_rules
         else:
             raise ValueError(f"Unsupported language: {language}")
 
-        # Tag detection source
+        # Tag detection source and scanId
         for f in findings:
             if "scanId" not in f:
                 f["scanId"] = scan_id
-            if "detectionSource" not in f:
-                f["detectionSource"] = "AST"
-
-        # 2. Machine Learning Vulnerability Detection
-        ml_detected = []
-        if not is_manifest and enable_ai and vulnerability_classifier.is_ready():
-            ml_findings = vulnerability_classifier.scan_code(source_code, language, file_name)
-            for ml_f in ml_findings:
-                ml_f["scanId"] = scan_id
-                existing = next((f for f in findings if f.get("startLine") == ml_f.get("startLine")), None)
-                if existing:
-                    existing["confidence"] = round(min(0.99, max(existing.get("confidence", 0.9), ml_f["confidence"] + 0.05)), 2)
-                    existing["detectionSource"] = "HYBRID_AST_AND_ML"
-                    existing["description"] += " [Corroborated by AI/ML Ensemble Model]"
-                else:
-                    findings.append(ml_f)
-                    ml_detected.append(ml_f)
-
-        # 3. ManageEngine Endpoint Central Rules
-        me_triggered = []
-        if not is_manifest and enable_rules:
-            me_rules = manageengine_client.check_code_against_rules(source_code, language)
-            for rule in me_rules:
-                me_triggered.append(rule)
-                if not any(f.get("startLine") == rule["line"] and f.get("cwe") == rule["cwe"] for f in findings):
-                    findings.append({
-                        "id": f"me-{uuid.uuid4().hex[:6]}",
-                        "scanId": scan_id,
-                        "title": rule["title"],
-                        "category": "COMMAND_INJECTION" if rule["cwe"] == "CWE-78" else "UNSAFE_DESERIALIZATION",
-                        "severity": rule["severity"],
-                        "cwe": rule["cwe"],
-                        "owaspCategory": "A01:2021-Broken Access Control" if rule["cwe"] == "CWE-22" else "A03:2021-Injection",
-                        "file": file_name,
-                        "startLine": rule["line"],
-                        "endLine": rule["line"],
-                        "confidence": 0.95,
-                        "description": f"Violation of ManageEngine Baseline: {rule['recommendation']}",
-                        "evidence": rule["evidence"],
-                        "impact": f"Endpoint exploitability corresponding to {rule['cve']}.",
-                        "dataFlow": [
-                            {
-                                "step": 1,
-                                "label": f"ManageEngine Violation ({rule['ruleId']})",
-                                "codeSnippet": rule["evidence"],
-                                "line": rule["line"],
-                                "type": "SINK",
-                                "description": f"Baseline rule for {rule['product']}",
-                            }
-                        ],
-                        "vulnerableCode": rule["evidence"],
-                        "remediationCode": f"# Remediate per ManageEngine baseline\n{rule['recommendation']}",
-                        "remediationExplanation": rule["recommendation"],
-                        "bestPractices": [
-                            "Enforce ManageEngine Endpoint Security configuration baselines.",
-                            "Follow NIST SP 800-218 Secure Software Development Framework."
-                        ],
-                        "references": [rule["reference"]],
-                        "remediationStatus": "OPEN",
-                        "detectionSource": "MANAGEENGINE_BASELINE",
-                        "cve": rule["cve"],
-                    })
 
         duration_ms = max(int((time.time() - start_time) * 1000), 80)
         highest_severity = calculate_highest_severity(findings)
         findings_count = count_severities(findings)
 
-        crit = findings_count.get("critical", 0)
-        high = findings_count.get("high", 0)
-        total = findings_count.get("total", 0)
-        risk_score = min(100, crit * 30 + high * 15 + max(0, total - crit - high) * 5)
+        risk_score = risk_report.get("overallScore", 0.0)
 
         # ML Model metadata
         ml_info = vulnerability_classifier.get_model_info()

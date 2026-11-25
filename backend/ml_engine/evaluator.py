@@ -46,6 +46,11 @@ class ModelEvaluator:
 
         cm = confusion_matrix(y_true, y_pred).tolist()
 
+        # False Positive Rate (FPR): FP / (FP + TN)
+        fpr = 0.0
+        if len(cm) == 2 and (cm[0][0] + cm[0][1]) > 0:
+            fpr = float(cm[0][1]) / float(cm[0][0] + cm[0][1])
+
         # Calculate PR-AUC and ROC-AUC if probability estimates are available
         pr_auc = None
         roc_auc = None
@@ -70,6 +75,7 @@ class ModelEvaluator:
             "macroRecall": round(float(macro_rec) * 100.0, 2),
             "macroF1": round(float(macro_f1) * 100.0, 2),
             "weightedF1": round(float(weighted_f1) * 100.0, 2),
+            "falsePositiveRate": round(float(fpr) * 100.0, 2),
             "confusionMatrix": cm,
             "prAuc": round(float(pr_auc) * 100.0, 2) if pr_auc is not None else None,
             "rocAuc": round(float(roc_auc) * 100.0, 2) if roc_auc is not None else None,

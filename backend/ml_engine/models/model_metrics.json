@@ -1,7 +1,7 @@
 {
   "modelName": "SecureCode-VulnNet (Hybrid TF-IDF + Security Sink Ensemble)",
   "version": "2.1.0-leakfree",
-  "trainedAt": "2026-11-25T17:27:51.765889+00:00",
+  "trainedAt": "2026-11-25T17:53:06.829087+00:00",
   "randomSeed": 42,
   "datasetHash": "34d3bbb332c66583",
   "totalSamples": 243,
@@ -37,6 +37,7 @@
   "macroRecall": 80.54,
   "macroF1": 77.78,
   "weightedF1": 77.78,
+  "falsePositiveRate": 34.38,
   "prAuc": 83.13,
   "rocAuc": 89.63,
   "confusionMatrix": [
@@ -49,6 +50,40 @@
       21
     ]
   ],
+  "modelComparison": {
+    "LogisticRegression": {
+      "accuracy": 92.59,
+      "precision": 87.5,
+      "recall": 95.45,
+      "f1Score": 91.3,
+      "macroF1": 92.43,
+      "falsePositiveRate": 9.38
+    },
+    "RandomForest": {
+      "accuracy": 46.3,
+      "precision": 42.22,
+      "recall": 86.36,
+      "f1Score": 56.72,
+      "macroF1": 42.99,
+      "falsePositiveRate": 81.25
+    },
+    "LinearSVM": {
+      "accuracy": 77.78,
+      "precision": 65.62,
+      "recall": 95.45,
+      "f1Score": 77.78,
+      "macroF1": 77.78,
+      "falsePositiveRate": 34.38
+    },
+    "CalibratedEnsemble": {
+      "accuracy": 77.78,
+      "precision": 65.62,
+      "recall": 95.45,
+      "f1Score": 77.78,
+      "macroF1": 77.78,
+      "falsePositiveRate": 34.38
+    }
+  },
   "validationMetrics": {
     "accuracy": 95.0,
     "precision": 93.75,
@@ -58,6 +93,7 @@
     "macroRecall": 90.0,
     "macroF1": 92.83,
     "weightedF1": 94.8,
+    "falsePositiveRate": 20.0,
     "confusionMatrix": [
       [
         8,
@@ -241,9 +277,9 @@
     }
   ],
   "artifactChecksums": {
-    "vectorizer_sha256": "fe6fe105688e5e75fe50d63a599a39acd0db5d1b0456191290fc27ca694a29e3",
-    "vuln_detector_sha256": "215482ee054d6fca6e62bab6cd7392f1ec48f9c232b3f7eef137cebaef731a41",
+    "vectorizer_sha256": "310a013ec752e19eb46d7b1e69c7bad9bf08f6e8523ba2697e898224e979b827",
+    "vuln_detector_sha256": "215aab1f55cb205bd6b7e85174db0780631a9f9ef3157acc1e9fcfe2a6900755",
     "cwe_classifier_sha256": "c03857b4225af860d8668fda7e71c125319b6501f911a772cf0a3c7303ebd7de"
   },
-  "savedAt": "2026-11-25T17:27:52.232476+00:00"
+  "savedAt": "2026-11-25T17:53:07.074740+00:00"
 }

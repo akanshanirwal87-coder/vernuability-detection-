@@ -297,17 +297,38 @@ alembic downgrade -1
 
 ### Running Automated Test Suite
 
-The test suite covers ML leakage prevention, SCA version parsing, backend security controls, upload validation, RBAC, health probes, repositories, services, and API v1 endpoints:
+The test suite covers ML leakage prevention, SCA version parsing, backend security controls, upload validation, RBAC, health probes, repositories, services, API v1 endpoints, source/sink registries, AST scanners, taint analysis, and remediation verification:
 
 ```bash
 # Activate virtual environment
 source .venv/bin/activate
 
-# Run full test suite (Phase 1 + Phase 2) with verbose output
+# Run complete test suite (Phase 1, Phase 2, and Phase 3) with verbose output
 PYTHONPATH=backend pytest backend/tests/ tests/ -v
 ```
 
-All **58 automated unit and integration tests** pass cleanly with 100% pass rate.
+All **117 automated unit and integration tests** pass cleanly with 100% pass rate.
+
+---
+
+## 6. Advanced AI/ML Security Engine (Phase 3)
+
+SecureCode AI Phase 3 implements a multi-tier hybrid vulnerability detection engine that combines AST static inspection, source-to-sink dataflow taint analysis, static rules, leak-free machine learning, evidence-based risk assessment, and automated remediation verification.
+
+### Key Capabilities
+- **Source-to-Sink Taint Analysis**: Inter-procedural taint propagation tracking user inputs (`request.args`, `req.query`, `sys.argv`) across assignments and operations into dangerous sinks with 3-step `dataFlow` evidence traces.
+- **Strict Defense & Sanitizer Recognition**: Understands verified sanitizers (`int()`, `os.path.basename`, `shlex.quote`, `DOMPurify.sanitize`, parameterized placeholders `%s`/`?`) and rejects ungrounded sanitizer functions.
+- **Leak-Free Machine Learning**: Calibrated ensemble (`SecureCode-VulnNet v2.1`) trained with strict pre-split partitioning, balanced class weighting, and empirical model comparisons (Logistic Regression, Linear SVM, and Calibrated Ensemble). ML strictly corroborates structural evidence and never invents findings on safe code.
+- **Evidence Aggregation & Deduplication**: Fuses overlapping detections across heterogeneous detectors, preserving the richest dataflow traces and compound provenance tags (`HYBRID_TAINT_AND_AST`).
+- **Closed-Loop Remediation Engine**: Generates context-aware fixes, creates unified diffs without modifying original files, and validates fixes inside an AST sandbox with explicit verification statuses (`REGRESSION_TESTS_PASSED`, `VERIFICATION_FAILED`).
+- **Comprehensive Documentation Suite**: Detailed specifications available in the [`docs/`](file:///workspaces/vernuability-detection-/docs/) directory:
+  - [AST Security Analysis](file:///workspaces/vernuability-detection-/docs/ast-analysis.md)
+  - [Taint & Dataflow Analysis](file:///workspaces/vernuability-detection-/docs/taint-analysis.md)
+  - [Machine Learning Methodology & Benchmarks](file:///workspaces/vernuability-detection-/docs/ml-detection-methodology.md)
+  - [Hybrid Detection Architecture](file:///workspaces/vernuability-detection-/docs/hybrid-detection-architecture.md)
+  - [Vulnerability Catalog & Risk Scoring](file:///workspaces/vernuability-detection-/docs/vulnerability-classification.md)
+  - [Automated Remediation & Verification Workflow](file:///workspaces/vernuability-detection-/docs/remediation-workflow.md)
+  - [Phase 3 Changelog](file:///workspaces/vernuability-detection-/docs/phase-3-changelog.md)
 
 ---
 

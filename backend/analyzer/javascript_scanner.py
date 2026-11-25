@@ -19,59 +19,90 @@ class JavaScriptScanner:
 
             # 1. Cross-Site Scripting (XSS) via innerHTML or dangerouslySetInnerHTML
             if re.search(r'\b(innerHTML|outerHTML)\s*=', line_trimmed) or 'dangerouslySetInnerHTML' in line_trimmed:
-                if '+' in line_trimmed or '${' in line_trimmed or 'params' in line_trimmed or 'query' in line_trimmed:
-                    sinks_count += 1
-                    self.findings.append({
-                        "id": f"fnd-xss-{uuid.uuid4().hex[:6]}",
-                        "title": "Cross-Site Scripting (XSS) via Unsanitized DOM Write",
-                        "category": "CROSS_SITE_SCRIPTING",
-                        "severity": "HIGH",
-                        "cwe": "CWE-79",
-                        "owaspCategory": "A03:2021-Injection",
-                        "file": self.file_name,
-                        "startLine": line_no,
-                        "endLine": line_no,
-                        "confidence": 0.94,
-                        "description": "Untrusted dynamic string rendered directly to DOM via innerHTML without HTML entity encoding.",
-                        "evidence": line_trimmed,
-                        "impact": "Enables session hijacking, keystroke logging, credential harvesting, and arbitrary client script execution.",
-                        "dataFlow": [
-                            {
-                                "step": 1,
-                                "label": "Source: Client Parameter",
-                                "codeSnippet": "urlParams.get('q')",
-                                "line": max(1, line_no - 3),
-                                "type": "SOURCE",
-                                "description": "Unsanitized user query received from window.location."
-                            },
-                            {
-                                "step": 2,
-                                "label": "Sink: DOM HTML Injection",
-                                "codeSnippet": line_trimmed,
-                                "line": line_no,
-                                "type": "SINK",
-                                "description": "Direct assignment to innerHTML bypasses DOM sanitization."
-                            }
-                        ],
-                        "vulnerableCode": line_trimmed,
-                        "remediationCode": "element.textContent = safeText; // or DOMPurify.sanitize(userInput)",
-                        "remediationExplanation": "Use textContent for plain text, or sanitize using DOMPurify before rendering HTML markup.",
-                        "bestPractices": [
-                            "Prefer element.textContent or element.innerText instead of innerHTML.",
-                            "Use a trusted sanitizer library such as DOMPurify.",
-                            "Adopt modern frontend frameworks with built-in output encoding (React/Vue)."
-                        ],
-                        "references": ["https://cwe.mitre.org/data/definitions/79.html"],
-                        "remediationStatus": "OPEN",
-                        "validationStatus": "NOT_VALIDATED"
-                    })
+                # Suppress if sanitized via DOMPurify or textContent
+                if 'DOMPurify.sanitize' not in line_trimmed and 'encodeURIComponent' not in line_trimmed:
+                    if '+' in line_trimmed or '${' in line_trimmed or 'params' in line_trimmed or 'query' in line_trimmed or 'userInput' in line_trimmed:
+                        sinks_count += 1
+                        self.findings.append({
+                            "id": f"fnd-xss-{uuid.uuid4().hex[:6]}",
+                            "title": "Cross-Site Scripting (XSS) via Unsanitized DOM Write",
+                            "category": "CROSS_SITE_SCRIPTING",
+                            "severity": "HIGH",
+                            "cwe": "CWE-79",
+                            "owaspCategory": "A03:2021-Injection",
+                            "file": self.file_name,
+                            "startLine": line_no,
+                            "endLine": line_no,
+                            "confidence": 0.94,
+                            "description": "Untrusted dynamic string rendered directly to DOM via innerHTML without HTML entity encoding.",
+                            "evidence": line_trimmed,
+                            "impact": "Enables session hijacking, keystroke logging, credential harvesting, and arbitrary client script execution.",
+                            "dataFlow": [
+                                {
+                                    "step": 1,
+                                    "label": "Source: Client Parameter",
+                                    "codeSnippet": "urlParams.get('q')",
+                                    "line": max(1, line_no - 3),
+                                    "type": "SOURCE",
+                                    "description": "Unsanitized user query received from window.location."
+                                },
+                                {
+                                    "step": 2,
+                                    "label": "Sink: DOM HTML Injection",
+                                    "codeSnippet": line_trimmed,
+                                    "line": line_no,
+                                    "type": "SINK",
+                                    "description": "Direct assignment to innerHTML bypasses DOM sanitization."
+                                }
+                            ],
+                            "vulnerableCode": line_trimmed,
+                            "remediationCode": "element.textContent = safeText; // or DOMPurify.sanitize(userInput)",
+                            "remediationExplanation": "Use textContent for plain text, or sanitize using DOMPurify before rendering HTML markup.",
+                            "bestPractices": [
+                                "Prefer element.textContent or element.innerText instead of innerHTML.",
+                                "Use a trusted sanitizer library such as DOMPurify.",
+                                "Adopt modern frontend frameworks with built-in output encoding (React/Vue)."
+                            ],
+                            "references": ["https://cwe.mitre.org/data/definitions/79.html"],
+                            "remediationStatus": "OPEN",
+                            "validationStatus": "NOT_VALIDATED"
+                        })
 
-            # 2. Command Injection / Dangerous Code Execution (eval, Function, child_process.exec)
-            if re.search(r'\b(eval|child_process\.exec|execSync)\s*\(', line_trimmed):
+            # 2a. Dynamic Code Execution (eval, Function)
+            if re.search(r'\b(eval|Function)\s*\(', line_trimmed):
+                sinks_count += 1
+                self.findings.append({
+                    "id": f"fnd-evaljs-{uuid.uuid4().hex[:6]}",
+                    "title": "Unsafe Dynamic Code Evaluation via eval()",
+                    "category": "COMMAND_INJECTION",
+                    "severity": "CRITICAL",
+                    "cwe": "CWE-95",
+                    "owaspCategory": "A03:2021-Injection",
+                    "file": self.file_name,
+                    "startLine": line_no,
+                    "endLine": line_no,
+                    "confidence": 0.97,
+                    "description": "Direct invocation of eval() with dynamic argument allows arbitrary script execution.",
+                    "evidence": line_trimmed,
+                    "impact": "Arbitrary code execution within client browser or host Node.js process.",
+                    "vulnerableCode": line_trimmed,
+                    "remediationCode": "JSON.parse(dataString)",
+                    "remediationExplanation": "Use JSON.parse() instead of eval() to deserialize structured data.",
+                    "bestPractices": [
+                        "Never pass user-controlled strings to eval().",
+                        "Use JSON.parse for serialization parsing."
+                    ],
+                    "references": ["https://cwe.mitre.org/data/definitions/95.html"],
+                    "remediationStatus": "OPEN",
+                    "validationStatus": "NOT_VALIDATED"
+                })
+
+            # 2b. OS Command Execution (child_process.exec, execSync)
+            if re.search(r'\b(child_process\.exec|execSync)\s*\(', line_trimmed):
                 sinks_count += 1
                 self.findings.append({
                     "id": f"fnd-cmdjs-{uuid.uuid4().hex[:6]}",
-                    "title": "Command Injection / Dangerous Code Execution (eval / exec)",
+                    "title": "Command Injection via Shell Execution (child_process.exec)",
                     "category": "COMMAND_INJECTION",
                     "severity": "CRITICAL",
                     "cwe": "CWE-78",
@@ -80,15 +111,15 @@ class JavaScriptScanner:
                     "startLine": line_no,
                     "endLine": line_no,
                     "confidence": 0.96,
-                    "description": "Direct invocation of eval() or child_process.exec() with dynamic arguments.",
+                    "description": "Invocation of shell interpreter with dynamic command string in Node.js environment.",
                     "evidence": line_trimmed,
-                    "impact": "Arbitrary code execution on client or server Node.js host.",
+                    "impact": "Arbitrary operating system command execution on server host.",
                     "vulnerableCode": line_trimmed,
-                    "remediationCode": "childProcess.execFile(binaryPath, argsArray, { shell: false })",
-                    "remediationExplanation": "Avoid eval() entirely; for system execution, use execFile() without shell invocation.",
+                    "remediationCode": "child_process.execFile(binaryPath, argsArray, { shell: false })",
+                    "remediationExplanation": "Use child_process.execFile() with structured argument arrays to avoid shell spawning.",
                     "bestPractices": [
-                        "Never pass user-controlled strings to eval().",
-                        "Use child_process.execFile with parameter arrays."
+                        "Use child_process.execFile with parameter arrays.",
+                        "Avoid spawning shell interpreters with unsanitized arguments."
                     ],
                     "references": ["https://cwe.mitre.org/data/definitions/78.html"],
                     "remediationStatus": "OPEN",
