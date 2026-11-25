@@ -229,7 +229,51 @@ If you prefer to install dependencies and run the backend and frontend manually 
 
 ---
 
-### Project Structure Overview
+## 4. Phase 1: Production Foundation Upgrades
+
+In Phase 1, the platform was hardened from an experimental prototype into a production-grade application security engine across four core domains:
+
+### 1. Leak-Free Machine Learning Pipeline
+- **Strict Pre-Augmentation Partitioning**: Raw vulnerability code samples are grouped by canonical structural AST hash and partitioned into Train (70%), Validation (15%), and Test (15%) splits *before* any text augmentation takes place (`data_splitter.py`).
+- **Feature Pipeline Isolation**: `TfidfVectorizer` vocabulary and scaling parameters are fitted exclusively on the training corpus.
+- **Calibrated Ensemble Model**: Combines `RandomForestClassifier` (`n_estimators=120`, `class_weight='balanced'`) and `LogisticRegression` with balanced class weights to mitigate class imbalance.
+- **Truthful Evaluation Engine**: Evaluates binary classification (Accuracy, Precision, Recall, F1, PR-AUC, ROC-AUC, Confusion Matrix) and multi-class CWE classification (macro F1, weighted F1, per-class metrics) on an untouched test set (`evaluator.py`). Never fabricates or hardcodes metrics.
+- **Model Registry & Integrity Checksums**: Artifacts are saved atomically with SHA-256 integrity checksums and automatic versioned backups (`model_registry.py`).
+
+### 2. Software Composition Analysis (SCA) & OSV Engine
+- **Multi-Format Manifest Parsing**: Native support for `requirements.txt` (Python), `pyproject.toml` (PEP 621 & Poetry), `package.json` (npm dependencies & devDependencies), and `package-lock.json` (resolved lockfile versions v1, v2, v3) (`dependency_parser.py`).
+- **Semantic Version Matching**: Evaluates SemVer and PEP 440 versions against OSV range events (`introduced`, `fixed`, `last_affected`, `limit`) to categorize packages into `AFFECTED`, `UNAFFECTED`, or `UNKNOWN` (`version_matcher.py`).
+- **Advisory Grounding**: Preserves authentic advisory IDs (CVE, GHSA), CVSS severities, and source links. Maps dependencies to real advisory CWEs or `CWE-1395` (Dependency on Vulnerable Component), replacing arbitrary generic CWE mappings (`sca_scanner.py`).
+- **Zero-Inference Principle**: Never flags an imported package as vulnerable without explicit version evidence.
+
+### 3. Backend Application Security & RBAC
+- **Strict CORS Policy**: Configurable via `ALLOWED_ORIGINS` in `.env`; wildcards are prohibited when credentials/auth headers are present (`core/config.py`).
+- **Robust Upload Security**: Enforces strict basename sanitization (`os.path.basename`), path traversal rejection (`..`, null bytes, absolute paths), extension allowlist (`.py`, `.js`, `.ts`, `.txt`, `.toml`, `.json`), and a 5MB size limit (`core/security.py`). Uploaded code is strictly analyzed statically and never executed.
+- **Authentication & RBAC**: PBKDF2-HMAC-SHA256 password hashing (100,000 iterations) and signed JWT bearer tokens (`HS256`). Protects administrative operations (`POST /api/ml/retrain`) with role-based authorization (`require_admin`) and API key fallback (`X-API-Key`).
+- **Sliding-Window Rate Limiting**: In-memory rate limiting per client IP (default 60 req/min) prevents credential brute-forcing and denial-of-service.
+- **Structured Secure Logging**: Automatic redaction of sensitive credentials (`Authorization`, `password`, `token`, `secret`) and safe unhandled exception handling that hides raw internal stack traces from clients.
+
+### 4. Dynamic Diagnostic Health Checks
+- **Live Connectivity Probes**: `GET /health` runs live probes against SQLite (`SELECT 1`), verifies ML model files and checksums, and tests OSV.dev REST API availability with strict 2-second timeouts (`services/health_service.py`).
+- **Status Tiering**: Accurately reports `healthy`, `degraded` (e.g. offline mode when OSV is unreachable), or `unhealthy` (database failure) without exposing credentials or internal paths.
+
+---
+
+### Running Automated Test Suite
+
+The comprehensive pytest suite covers ML leakage prevention, SCA version parsing, backend security controls, upload validation, RBAC, and health probes:
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# Run full test suite with verbose output
+PYTHONPATH=backend pytest tests/ -v
+```
+
+All 27 automated unit and integration tests pass cleanly.
+
+---
 
 ```text
 vernuability-detection-/

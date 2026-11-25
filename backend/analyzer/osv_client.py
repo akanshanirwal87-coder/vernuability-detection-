@@ -83,7 +83,9 @@ class OsvClient:
                         "ecosystem": ecosystem,
                         "published": v.get("published"),
                         "references": [r.get("url") for r in v.get("references", []) if r.get("url")][:3],
-                        "source": "https://osv.dev/"
+                        "source": "https://osv.dev/",
+                        "affected": v.get("affected", []),
+                        "database_specific": v.get("database_specific", {})
                     })
                 
                 self.local_cache[cache_key] = formatted
@@ -95,12 +97,17 @@ class OsvClient:
 
         return self.local_cache.get(cache_key, [])
 
-    def scan_imports(self, imports: List[str], language: str = "python") -> List[Dict[str, Any]]:
+    def scan_imports(self, imports: List[str], language: str = "python", versions: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """
-        Scans imported packages against the OSV database to detect vulnerable open source components.
+        Scans imported packages against the OSV database only when version evidence is available.
+        Does NOT falsely flag an import as vulnerable if no dependency version evidence is provided.
         """
         ecosystem = "PyPI" if language.lower() == "python" else "npm"
         findings = []
+
+        if not versions:
+            # Without dependency version evidence, do not infer vulnerability
+            return []
 
         # Known standard libraries to ignore
         stdlib = {
@@ -115,12 +122,17 @@ class OsvClient:
             if not clean_pkg or clean_pkg in stdlib:
                 continue
 
-            results = self.query_package(clean_pkg, ecosystem=ecosystem)
+            pkg_ver = versions.get(clean_pkg)
+            if not pkg_ver:
+                # No version evidence for this package -> do not flag
+                continue
+
+            results = self.query_package(clean_pkg, ecosystem=ecosystem, version=pkg_ver)
             if results:
-                # Top advisory
                 top = results[0]
                 findings.append({
                     "packageName": clean_pkg,
+                    "version": pkg_ver,
                     "ecosystem": ecosystem,
                     "advisoryId": top["id"],
                     "cve": top["cve"],

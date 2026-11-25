@@ -4,9 +4,19 @@ import json
 import os
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from core.config import settings
+from core.security import validate_upload, sanitize_filename
+from core.permissions import require_admin, check_rate_limit, get_current_user_optional
+from core.logging_config import logger
+from api.auth import router as auth_router
+from services.health_service import health_service
+from analyzer.dependency_parser import DependencyParser
+from analyzer.sca_scanner import sca_scanner
 
 from models import (
     ScanCreateRequest,
@@ -34,17 +44,35 @@ from ml_engine.classifier import vulnerability_classifier
 from ml_engine.train_model import train_and_evaluate
 
 app = FastAPI(
-    title="SecureCode AI Backend",
+    title=settings.APP_NAME,
     description="AI-Driven Code Security Vulnerability Detection and Remediation API (Integrated with OSV.dev & ManageEngine)",
-    version="2.0.0"
+    version=settings.APP_VERSION
 )
 
-# CORS Middleware for frontend communication
+# Mount Authentication Router
+app.include_router(auth_router)
+
+# Safe Unhandled Exception Handler (Never leak secrets or internal tracebacks)
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None)
+        )
+    logger.error(f"Unhandled server error on {request.method} {request.url.path}: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred."}
+    )
+
+# CORS Middleware with restricted origins from environment configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -52,20 +80,8 @@ storage = ScanStorage()
 
 @app.get("/health")
 def health_check():
-    ml_info = vulnerability_classifier.get_model_info()
-    return {
-        "status": "healthy",
-        "version": "2.0.0",
-        "scannerEngine": "Hybrid AST + Calibrated Machine Learning Ensemble",
-        "astParserAvailable": True,
-        "aiRemediationAvailable": True,
-        "databaseConnected": True,
-        "mlModelLoaded": vulnerability_classifier.is_ready(),
-        "mlAccuracy": ml_info.get("accuracy", 90.5),
-        "osvConnectorConnected": True,
-        "manageEngineKnowledgeBaseConnected": True,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+    """Live system health check with database, ML model, and OSV connectivity probes."""
+    return health_service.get_system_health()
 
 def calculate_highest_severity(findings: List[dict]) -> str:
     severities = [f.get("severity", "LOW") for f in findings]
@@ -92,8 +108,18 @@ def create_scan(req: ScanCreateRequest):
     created_at = datetime.now(timezone.utc).isoformat()
     lines_analyzed = len(req.sourceCode.splitlines())
 
-    # 1. AST Structural Analysis
-    if req.language.lower() == "python":
+    # 1. AST Structural Analysis or Dependency Manifest SCA
+    is_manifest = DependencyParser.is_manifest_file(req.fileName or "") or req.language.lower() in ("manifest", "requirements", "toml", "lockfile")
+    
+    if is_manifest:
+        findings = sca_scanner.scan_manifest(req.fileName or "requirements.txt", req.sourceCode, scan_id)
+        ast_summary = {
+            "nodesCount": 0,
+            "functionsFound": 0,
+            "importsFound": [f.get("packageName") for f in findings if f.get("packageName")],
+            "sinksIdentified": 0
+        }
+    elif req.language.lower() == "python":
         scanner = PythonAstScanner(req.sourceCode, file_name=req.fileName or "script.py")
         findings, ast_summary = scanner.scan()
     elif req.language.lower() in ("javascript", "typescript"):
@@ -104,17 +130,19 @@ def create_scan(req: ScanCreateRequest):
 
     # Tag AST findings
     for f in findings:
-        f["scanId"] = scan_id
-        f["detectionSource"] = "AST"
+        if "scanId" not in f:
+            f["scanId"] = scan_id
+        if "detectionSource" not in f:
+            f["detectionSource"] = "AST"
 
     # 2. Machine Learning Vulnerability Detection (Trained on OSV.dev + ManageEngine)
     ml_detected_findings = []
-    if req.options.enableAiClassifier and vulnerability_classifier.is_ready():
+    if not is_manifest and req.options.enableAiClassifier and vulnerability_classifier.is_ready():
         ml_findings = vulnerability_classifier.scan_code(req.sourceCode, req.language, req.fileName or "source_code")
         for ml_f in ml_findings:
             ml_f["scanId"] = scan_id
             # Check if this line was already identified by AST
-            existing = next((f for f in findings if f["startLine"] == ml_f["startLine"]), None)
+            existing = next((f for f in findings if f.get("startLine") == ml_f.get("startLine")), None)
             if existing:
                 # Corroborate finding: upgrade confidence and note hybrid confirmation
                 existing["confidence"] = round(min(0.99, max(existing.get("confidence", 0.9), ml_f["confidence"] + 0.05)), 2)
@@ -126,49 +154,21 @@ def create_scan(req: ScanCreateRequest):
                 ml_detected_findings.append(ml_f)
 
     # 3. OSV.dev Dependency / Package Vulnerability Scanning
+    # Rule: Do not infer that an imported package is vulnerable without dependency/version evidence.
     osv_issues = []
-    if ast_summary and ast_summary.get("importsFound"):
-        osv_issues = osv_client.scan_imports(ast_summary["importsFound"], req.language)
-        for issue in osv_issues:
-            findings.append({
-                "id": f"osv-{uuid.uuid4().hex[:6]}",
-                "scanId": scan_id,
-                "title": f"Vulnerable Dependency: {issue['packageName']} ({issue['cve']})",
-                "category": "HARDCODED_CREDENTIALS" if "Proxy" in issue["title"] else "COMMAND_INJECTION",
-                "severity": issue["severity"],
-                "cwe": "CWE-1395",
-                "owaspCategory": "A06:2021-Vulnerable and Outdated Components",
-                "file": req.fileName or "source_code",
-                "startLine": 1,
-                "endLine": 1,
-                "confidence": 0.98,
-                "description": f"Known public vulnerability discovered in package '{issue['packageName']}' via OSV.dev: {issue['title']}. {issue['details']}",
-                "evidence": f"import {issue['packageName']}",
-                "impact": "Adversaries can exploit known component CVEs to compromise system integrity.",
-                "dataFlow": [
-                    {
-                        "step": 1,
-                        "label": f"Vulnerable Component ({issue['cve']})",
-                        "codeSnippet": f"import {issue['packageName']}",
-                        "line": 1,
-                        "type": "SINK",
-                        "description": f"OSV.dev Advisory ID: {issue['advisoryId']}"
-                    }
-                ],
-                "vulnerableCode": f"import {issue['packageName']}",
-                "remediationCode": f"# Upgrade {issue['packageName']} to the latest secure patched release in requirements.txt / package.json",
-                "remediationExplanation": f"Upgrade {issue['packageName']} to remediate {issue['cve']}.",
-                "bestPractices": [
-                    "Perform regular Software Composition Analysis (SCA) with OSV.dev.",
-                    "Pin dependencies to secure, audited release versions.",
-                    "Automate vulnerability alerting via dependency bots."
-                ],
-                "references": issue["references"] or ["https://osv.dev/"],
-                "remediationStatus": "OPEN",
-                "validationStatus": "NOT_VALIDATED",
-                "detectionSource": "OSV_DATABASE",
-                "cve": issue["cve"]
-            })
+    if is_manifest:
+        # Populate osvFindings from manifest SCA findings
+        for f in findings:
+            if f.get("detectionSource") == "SCA_OSV":
+                osv_issues.append({
+                    "packageName": f.get("packageName", "unknown"),
+                    "version": f.get("version", "unknown"),
+                    "cve": f.get("cve", "UNKNOWN"),
+                    "title": f.get("title", ""),
+                    "severity": f.get("severity", "MEDIUM"),
+                    "advisoryId": f.get("advisoryId", f.get("cve")),
+                    "references": f.get("references", [])
+                })
 
     # 4. ManageEngine Endpoint Central Security Baseline Rules
     me_triggered = []
@@ -275,22 +275,23 @@ def create_scan(req: ScanCreateRequest):
 async def upload_file_scan(
     projectName: str = Form(...),
     language: str = Form(...),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    _=Depends(check_rate_limit)
 ):
     content = await file.read()
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File size exceeds maximum permitted limit (5MB).")
-
     try:
-        source_code = content.decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="File must be valid UTF-8 encoded text.")
+        safe_name = validate_upload(file.filename or "", content)
+    except ValueError as e:
+        logger.warning(f"Rejected invalid file upload '{file.filename}': {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
 
+    source_code = content.decode("utf-8")
+    # Never execute uploaded code; strictly perform static AST, SCA, and ML analysis
     req = ScanCreateRequest(
         projectName=projectName,
         language=language,
         sourceCode=source_code,
-        fileName=file.filename
+        fileName=safe_name
     )
     return create_scan(req)
 
@@ -386,14 +387,39 @@ def get_ml_model_info():
     return info
 
 @app.post("/api/ml/retrain")
-def retrain_ml_model():
-    """Triggers dataset re-generation and model training pipeline."""
+def retrain_ml_model(
+    user: Dict[str, Any] = Depends(require_admin),
+    _=Depends(check_rate_limit)
+):
+    """Triggers dataset re-generation and model training pipeline. Restricted to administrators."""
+    logger.info(f"Retraining initiated by authenticated admin user '{user.get('username')}'")
     metrics = train_and_evaluate()
     # Re-initialize classifier with fresh model
     vulnerability_classifier._load_models()
     return {
         "message": "Model retrained and loaded successfully",
-        "metrics": metrics
+        "metrics": metrics,
+        "triggeredBy": user.get("username")
+    }
+
+class ScaScanRequest(BaseModel):
+    fileName: str
+    content: str
+    projectName: Optional[str] = "Dependency Manifest Scan"
+
+@app.post("/api/sca/scan")
+def scan_dependency_manifest(req: ScaScanRequest, _=Depends(check_rate_limit)):
+    """Dedicated Software Composition Analysis (SCA) endpoint for dependency manifests."""
+    scan_id = f"sca-{uuid.uuid4().hex[:8]}"
+    findings = sca_scanner.scan_manifest(req.fileName, req.content, scan_id)
+    return {
+        "scanId": scan_id,
+        "fileName": req.fileName,
+        "dependenciesFound": len(findings),
+        "findings": findings,
+        "highestSeverity": calculate_highest_severity(findings),
+        "findingsCount": count_severities(findings),
+        "status": "COMPLETED"
     }
 
 class PredictSnippetRequest(BaseModel):
@@ -752,7 +778,10 @@ def scan_project_multi_file(req: MultiFileScanRequest):
         combined_source_parts.append(f"# === FILE: {file_item.fileName} ===\n{file_item.sourceCode}")
         total_lines += len(file_item.sourceCode.splitlines())
 
-        if lang == "python":
+        if DependencyParser.is_manifest_file(file_item.fileName or ""):
+            findings = sca_scanner.scan_manifest(file_item.fileName, file_item.sourceCode, scan_id)
+            ast_sum = {"nodesCount": 0, "functionsFound": 0, "importsFound": [f.get("packageName") for f in findings if f.get("packageName")], "sinksIdentified": 0}
+        elif lang == "python":
             scanner = PythonAstScanner(file_item.sourceCode, file_name=file_item.fileName)
             findings, ast_sum = scanner.scan()
         else:
