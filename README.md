@@ -44,10 +44,10 @@ Unlike traditional static linters that produce simple alert dumps, SecureCode AI
                    v                                                   v
         +--------------------+                              +--------------------+
         |      FRONTEND      |                              |      BACKEND       |
-        | React + TypeScript |                              |  Python + FastAPI  |
-        | Tailwind CSS + Vite|                              |  SQLite Storage    |
-        | Monaco Editor      |                              |  Port: 8000        |
-        | Model/Dataset Lab  |                              |                    |
+        | React 19 + TS 6    |                              | Python 3.12+FastAPI|
+        | TailwindCSS + Vite |                              | PostgreSQL/SQLite  |
+        | Monaco + DiffEditor|                              | SQLAlchemy+Alembic |
+        | JWT Auth + Projects|                              | Port: 8000         |
         | Port: 5173         |                              |                    |
         +--------------------+                              +--------------------+
                    |                                                   |

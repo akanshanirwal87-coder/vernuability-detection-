@@ -15,7 +15,8 @@ import {
   GraduationCap,
   Brain,
   Database,
-  Layers
+  Layers,
+  FolderGit2
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -26,6 +27,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle }) => {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+    { name: 'Projects', path: '/projects', icon: FolderGit2, badge: 'PROJ' },
     { name: 'New Scan', path: '/scan', icon: Terminal, badge: 'SAST' },
     { name: 'Scan History', path: '/history', icon: History },
     { name: 'Vulnerabilities', path: '/results/scan-demo-01', icon: ShieldAlert },

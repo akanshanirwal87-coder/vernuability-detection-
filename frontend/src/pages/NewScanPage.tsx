@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { 
   Play, 
@@ -29,9 +29,14 @@ import { toast } from 'sonner';
 
 export const NewScanPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Form states
-  const [projectName, setProjectName] = useState<string>('MySecurityAudit');
+  const initialProjectId = (location.state as any)?.projectId;
+  const initialProjectName = (location.state as any)?.projectName || 'MySecurityAudit';
+
+  const [projectId, setProjectId] = useState<string | undefined>(initialProjectId);
+  const [projectName, setProjectName] = useState<string>(initialProjectName);
   const [fileName, setFileName] = useState<string>('auth_service.py');
   const [language, setLanguage] = useState<'python' | 'javascript' | 'typescript'>('python');
   const [inputTab, setInputTab] = useState<'editor' | 'upload' | 'multi-file'>('editor');
@@ -176,6 +181,7 @@ export const NewScanPage: React.FC = () => {
       fileName,
       language,
       sourceCode,
+      projectId,
       options,
     };
 

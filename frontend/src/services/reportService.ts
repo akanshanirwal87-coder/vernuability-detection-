@@ -1,5 +1,27 @@
 import jsPDF from 'jspdf';
+import { api } from './api';
+import type { ApiResponse } from '../types/auth';
 import type { ScanResult } from '../types/scan';
+
+export interface ExecutiveAuditReport {
+  scanId: string;
+  projectName: string;
+  fileName: string;
+  language: string;
+  riskScore: number;
+  highestSeverity: string;
+  totalFindings: number;
+  criticalFindings: number;
+  highFindings: number;
+  executiveSummary: string;
+  recommendations: string[];
+  generatedAt: string;
+}
+
+export async function fetchAuditReport(scanId: string): Promise<ExecutiveAuditReport> {
+  const res = await api.get<ApiResponse<ExecutiveAuditReport>>(`/api/v1/reports/${scanId}`);
+  return res.data.data;
+}
 
 export function exportJsonReport(scan: ScanResult): void {
   const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(scan, null, 2));

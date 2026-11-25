@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { checkBackendHealth, getStoredUser, UserProfile } from '../../services/apiClient';
+import { checkBackendHealth } from '../../services/apiClient';
+import { useAuth } from '../../hooks/useAuth';
 import { AuthModal } from '../common/AuthModal';
 import { 
   PlusCircle, 
@@ -12,16 +13,18 @@ import {
   ChevronRight,
   Sparkles,
   Brain,
-  GraduationCap
+  GraduationCap,
+  LogOut,
+  FolderGit2
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user: currentUser, logout } = useAuth();
   const [backendOnline, setBackendOnline] = useState<boolean>(false);
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getStoredUser());
 
   useEffect(() => {
     checkBackendHealth().then(res => setBackendOnline(res.online));
@@ -35,6 +38,7 @@ export const Header: React.FC = () => {
     const path = location.pathname;
     if (path === '/') return 'Welcome';
     if (path.startsWith('/dashboard')) return 'Security Dashboard';
+    if (path.startsWith('/projects')) return 'Project Management';
     if (path.startsWith('/scan')) return 'New Code Analysis';
     if (path.startsWith('/results')) return 'Scan Findings & Audit';
     if (path.startsWith('/remediation')) return 'AI Remediation Workspace';
@@ -137,23 +141,52 @@ export const Header: React.FC = () => {
         </div>
 
         {/* User Authentication & Profile Pill */}
-        <button
-          onClick={() => setIsAuthOpen(true)}
-          className="flex items-center gap-2 pl-3 border-l border-border/80 text-xs text-slate-300 hover:text-slate-100 transition-colors group cursor-pointer"
-          title={currentUser ? `Signed in as ${currentUser.name}` : "Sign In / Register"}
-        >
-          <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 group-hover:border-cyan-500/60 flex items-center justify-center text-cyan-400 font-semibold text-xs transition-colors">
-            {currentUser ? currentUser.name.charAt(0).toUpperCase() : <User className="w-3.5 h-3.5 text-slate-400" />}
+        {currentUser ? (
+          <div className="flex items-center gap-2 pl-3 border-l border-border/80">
+            <button
+              onClick={() => setIsAuthOpen(true)}
+              className="flex items-center gap-2 text-xs text-slate-300 hover:text-slate-100 transition-colors group cursor-pointer"
+              title={`Signed in as ${currentUser.name}`}
+            >
+              <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 group-hover:border-cyan-500/60 flex items-center justify-center text-cyan-400 font-semibold text-xs transition-colors">
+                {(currentUser.name || currentUser.email).charAt(0).toUpperCase()}
+              </div>
+              <div className="hidden lg:flex flex-col text-left">
+                <span className="font-medium text-slate-200 text-xs leading-none">
+                  {currentUser.name || currentUser.email}
+                </span>
+                <span className="text-[10px] text-slate-400 leading-tight">
+                  {currentUser.role}
+                </span>
+              </div>
+            </button>
+            <button
+              onClick={() => logout()}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              title="Sign Out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
-          <div className="hidden lg:flex flex-col text-left">
-            <span className="font-medium text-slate-200 text-xs leading-none">
-              {currentUser ? currentUser.name : "Sign In"}
-            </span>
-            <span className="text-[10px] text-slate-400 leading-tight">
-              {currentUser ? currentUser.role : "Account"}
-            </span>
-          </div>
-        </button>
+        ) : (
+          <button
+            onClick={() => navigate('/login')}
+            className="flex items-center gap-2 pl-3 border-l border-border/80 text-xs text-slate-300 hover:text-slate-100 transition-colors group cursor-pointer"
+            title="Sign In / Register"
+          >
+            <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 group-hover:border-cyan-500/60 flex items-center justify-center text-cyan-400 font-semibold text-xs transition-colors">
+              <User className="w-3.5 h-3.5 text-slate-400" />
+            </div>
+            <div className="hidden lg:flex flex-col text-left">
+              <span className="font-medium text-slate-200 text-xs leading-none">
+                Sign In
+              </span>
+              <span className="text-[10px] text-slate-400 leading-tight">
+                Account
+              </span>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* Auth Modal */}
@@ -161,7 +194,7 @@ export const Header: React.FC = () => {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         currentUser={currentUser}
-        onAuthChange={(user) => setCurrentUser(user)}
+        onAuthChange={() => {}}
       />
     </header>
   );

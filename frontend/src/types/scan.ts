@@ -69,6 +69,7 @@ export interface ScanRequest {
   language: 'python' | 'javascript' | 'typescript';
   sourceCode: string;
   fileName?: string;
+  projectId?: string;
   options: ScanOptions;
 }
 

@@ -1,53 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-  PlusCircle, 
-  ShieldAlert, 
-  Terminal, 
-  CheckCircle2, 
-  AlertTriangle, 
-  TrendingUp, 
-  FileText, 
-  Eye, 
-  Trash2, 
-  ExternalLink,
-  Shield,
-  Layers,
-  Brain,
-  Sparkles
-} from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  ResponsiveContainer, 
-  PieChart, 
-  Pie, 
-  Cell, 
-  AreaChart, 
-  Area 
-} from 'recharts';
-import { getScans, deleteScan, getScanById } from '../services/scanService';
-import type { ScanHistoryItem, VulnerabilityFinding } from '../types/scan';
-import { SeverityBadge } from '../components/common/SeverityBadge';
-import { DemoDataBanner } from '../components/common/DemoDataBanner';
-import { AnimatedCounter } from '../components/common/AnimatedCounter';
-import { 
-  DashboardCardSkeleton, 
-  ChartSkeleton, 
-  TableSkeleton 
-} from '../components/common/Skeleton';
-import { DEMO_DASHBOARD_STATS, DEMO_FINDINGS } from '../services/demoData';
+import { useNavigate, Link } from 'react-router-dom';
+import { PlusCircle, Terminal, Sparkles, Brain, FolderGit2 } from 'lucide-react';
+import { getScans, deleteScan } from '../services/scanService';
+import { ProjectService } from '../services/projectService';
+import type { ScanHistoryItem } from '../types/scan';
+import { SecurityOverview } from '../components/dashboard/SecurityOverview';
+import { SeverityChart } from '../components/dashboard/SeverityChart';
+import { ScanActivity } from '../components/dashboard/ScanActivity';
+import { RecentScans } from '../components/dashboard/RecentScans';
+import { CardSkeleton, TableSkeleton } from '../components/common/Loader';
 import { toast } from 'sonner';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [scans, setScans] = useState<ScanHistoryItem[]>([]);
+  const [totalProjects, setTotalProjects] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [recentFindings, setRecentFindings] = useState<VulnerabilityFinding[]>([]);
 
   useEffect(() => {
     loadDashboardData();
@@ -56,23 +24,15 @@ export const DashboardPage: React.FC = () => {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const scanList = await getScans();
+      const [scanList, projData] = await Promise.all([
+        getScans().catch(() => []),
+        ProjectService.listProjects({ limit: 1 }).catch(() => ({ items: [], pagination: { total: 0 } })),
+      ]);
       setScans(scanList);
-
-      // Load findings from the latest scan if available
-      if (scanList.length > 0) {
-        const latest = await getScanById(scanList[0].id);
-        if (latest && latest.findings.length > 0) {
-          setRecentFindings(latest.findings.slice(0, 5));
-        } else {
-          setRecentFindings(DEMO_FINDINGS.slice(0, 5));
-        }
-      } else {
-        setRecentFindings(DEMO_FINDINGS.slice(0, 5));
-      }
+      setTotalProjects(projData.pagination?.total ?? projData.items?.length ?? 0);
     } catch (err) {
       console.error(err);
-      toast.error('Could not load scan records');
+      toast.error('Failed to load dashboard metrics');
     } finally {
       setLoading(false);
     }
@@ -81,409 +41,168 @@ export const DashboardPage: React.FC = () => {
   const handleDeleteScan = async (id: string) => {
     try {
       await deleteScan(id);
-      setScans(prev => prev.filter(s => s.id !== id));
-      setDeleteTargetId(null);
-      toast.success('Scan removed from history');
-    } catch (err) {
-      toast.error('Failed to delete scan');
+      setScans((prev) => prev.filter((s) => s.id !== id));
+      toast.success('Scan record removed');
+    } catch {
+      toast.error('Failed to remove scan record');
     }
   };
 
-  const hasDemoScans = scans.some(s => s.isDemo);
-  const totalScansCount = scans.length > 0 ? scans.length : DEMO_DASHBOARD_STATS.totalScans;
-  const vulnerabilitiesCount = scans.length > 0
-    ? scans.reduce((acc, s) => acc + s.totalFindings, 0)
-    : DEMO_DASHBOARD_STATS.vulnerabilitiesFound;
-  const criticalCount = scans.length > 0
-    ? scans.reduce((acc, s) => acc + (s.findingsCount?.critical ?? (s.highestSeverity === 'CRITICAL' ? 1 : 0)), 0)
-    : DEMO_DASHBOARD_STATS.criticalFindings;
-  const remediationProgress = scans.length > 0
-    ? (totalScansCount > 0 ? Math.min(100, Math.round((scans.filter(s => s.status === 'COMPLETED').length / totalScansCount) * 100)) : 0)
-    : DEMO_DASHBOARD_STATS.remediationProgress;
+  // Derive real statistics from backend data (no fabricated fallback)
+  const totalScans = scans.length;
+  const totalVulnerabilities = scans.reduce((acc, s) => acc + (s.totalFindings || 0), 0);
+  const criticalFindings = scans.reduce((acc, s) => {
+    const isCrit = s.highestSeverity === 'CRITICAL';
+    return acc + (isCrit ? 1 : 0);
+  }, 0);
+  const highFindings = scans.reduce((acc, s) => {
+    const isHigh = s.highestSeverity === 'HIGH';
+    return acc + (isHigh ? 1 : 0);
+  }, 0);
 
-  // Real or fallback severity distribution
-  const severityDistribution = scans.length > 0 && scans.some(s => s.findingsCount)
-    ? [
-        { name: 'Critical', count: scans.reduce((acc, s) => acc + (s.findingsCount?.critical || 0), 0), fill: '#EF4444' },
-        { name: 'High', count: scans.reduce((acc, s) => acc + (s.findingsCount?.high || 0), 0), fill: '#F97316' },
-        { name: 'Medium', count: scans.reduce((acc, s) => acc + (s.findingsCount?.medium || 0), 0), fill: '#F59E0B' },
-        { name: 'Low', count: scans.reduce((acc, s) => acc + (s.findingsCount?.low || 0), 0), fill: '#10B981' },
-      ]
-    : DEMO_DASHBOARD_STATS.severityDistribution;
+  // Derive real severity breakdown
+  const critCount = scans.filter((s) => s.highestSeverity === 'CRITICAL').length;
+  const highCount = scans.filter((s) => s.highestSeverity === 'HIGH').length;
+  const medCount = scans.filter((s) => s.highestSeverity === 'MEDIUM').length;
+  const lowCount = scans.filter((s) => s.highestSeverity === 'LOW').length;
+
+  const severityChartData = [
+    { name: 'Critical', count: critCount, fill: '#EF4444' },
+    { name: 'High', count: highCount, fill: '#F97316' },
+    { name: 'Medium', count: medCount, fill: '#F59E0B' },
+    { name: 'Low', count: lowCount, fill: '#3B82F6' },
+  ];
+
+  // Derive real activity timeline by day
+  const dateMap = new Map<string, number>();
+  scans.forEach((s) => {
+    const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Today';
+    dateMap.set(dateStr, (dateMap.get(dateStr) || 0) + 1);
+  });
+  const activityData = Array.from(dateMap.entries()).map(([date, count]) => ({
+    date,
+    scans: count,
+  })).slice(-7);
 
   return (
     <div className="space-y-6">
-      {/* Welcome Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-800">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Security Overview</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Monitor scans, investigate findings, and improve code security across projects.
+            Real-time vulnerability metrics, AST scanning telemetry, and remediation progress.
           </p>
         </div>
-        <button
-          onClick={() => navigate('/scan')}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5 shadow-sm shadow-blue-500/20 w-fit"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Start New Scan</span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <Link
+            to="/projects"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700"
+          >
+            <FolderGit2 className="w-4 h-4 text-cyan-400" />
+            <span>Manage Projects</span>
+          </Link>
+          <button
+            onClick={() => navigate('/scan')}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/20 transition active:scale-95"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Start New Scan</span>
+          </button>
+        </div>
       </div>
 
-      {hasDemoScans && (
-        <DemoDataBanner message="Showing deterministic sample scans and findings from test fixtures." />
-      )}
-
       {loading ? (
-        /* Loading Skeleton State */
-        <div className="space-y-6 animate-fade-in" aria-label="Loading dashboard data">
+        <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <DashboardCardSkeleton />
-            <DashboardCardSkeleton />
-            <DashboardCardSkeleton />
-            <DashboardCardSkeleton />
+            <CardSkeleton rows={2} />
+            <CardSkeleton rows={2} />
+            <CardSkeleton rows={2} />
+            <CardSkeleton rows={2} />
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-4">
-              <ChartSkeleton height="h-48" />
-            </div>
-            <div className="lg:col-span-8">
-              <ChartSkeleton height="h-56" />
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <CardSkeleton rows={4} />
+            <CardSkeleton rows={4} />
           </div>
-          <div className="p-5 rounded-xl bg-card border border-border space-y-4">
-            <TableSkeleton rows={4} />
+          <TableSkeleton rows={4} />
+        </div>
+      ) : scans.length === 0 ? (
+        /* Empty State */
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-800 bg-[#111827] p-12 text-center shadow-lg">
+          <div className="mb-4 rounded-2xl bg-indigo-500/10 p-5 ring-1 ring-indigo-500/30">
+            <Terminal className="h-10 w-10 text-indigo-400" />
+          </div>
+          <h2 className="text-xl font-bold text-white">No Security Scans Recorded Yet</h2>
+          <p className="mt-2 max-w-md text-sm text-slate-400">
+            Run an AST-driven static analysis, AI taint flow inspection, or OSV dependency scan to detect vulnerabilities in your repository.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3 justify-center">
+            <button
+              onClick={() => navigate('/scan')}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 transition hover:bg-indigo-500"
+            >
+              <PlusCircle className="h-4 w-4" />
+              <span>Launch First Scan</span>
+            </button>
+            <Link
+              to="/projects"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/80 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:bg-slate-700 hover:text-white"
+            >
+              <FolderGit2 className="h-4 w-4 text-cyan-400" />
+              <span>Create Project</span>
+            </Link>
           </div>
         </div>
       ) : (
         <>
-          {/* Summary Metric Cards with Staggered Fade-In-Up */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Total Scans */}
-            <div className="animate-fade-in-up stagger-1 p-4 rounded-xl bg-card border border-border flex items-center justify-between transition-all duration-300 ease-out hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
-              <div>
-                <p className="text-xs font-medium text-slate-400">Total Scans</p>
-                <h3 className="text-2xl font-bold text-white mt-1">
-                  <AnimatedCounter value={totalScansCount} />
-                </h3>
-                <span className="text-[11px] text-cyan-400 font-mono">AST & Rule Passes</span>
-              </div>
-              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 transition-transform duration-300 group-hover:scale-110">
-                <Terminal className="w-5 h-5" />
-              </div>
-            </div>
+          {/* Key Metrics */}
+          <SecurityOverview
+            totalScans={totalScans}
+            totalVulnerabilities={totalVulnerabilities}
+            criticalFindings={criticalFindings}
+            highFindings={highFindings}
+            totalProjects={totalProjects}
+          />
 
-            {/* Vulnerabilities Found */}
-            <div className="animate-fade-in-up stagger-2 p-4 rounded-xl bg-card border border-border flex items-center justify-between transition-all duration-300 ease-out hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
-              <div>
-                <p className="text-xs font-medium text-slate-400">Vulnerabilities Found</p>
-                <h3 className="text-2xl font-bold text-white mt-1">
-                  <AnimatedCounter value={vulnerabilitiesCount} />
-                </h3>
-                <span className="text-[11px] text-amber-400 font-mono">Active In Code</span>
-              </div>
-              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                <ShieldAlert className="w-5 h-5" />
-              </div>
-            </div>
-
-            {/* Critical Findings */}
-            <div className={`animate-fade-in-up stagger-3 p-4 rounded-xl bg-card border border-border flex items-center justify-between transition-all duration-300 ease-out hover:-translate-y-1 hover:border-red-900/60 hover:shadow-lg hover:shadow-red-950/30 ${criticalCount > 0 ? 'border-red-900/40 bg-gradient-to-br from-card to-red-950/10' : ''}`}>
-              <div>
-                <p className="text-xs font-medium text-slate-400">Critical Findings</p>
-                <h3 className="text-2xl font-bold text-red-400 mt-1 flex items-center gap-1.5">
-                  <AnimatedCounter value={criticalCount} />
-                  {criticalCount > 0 && (
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                  )}
-                </h3>
-                <span className="text-[11px] text-red-400 font-mono">Requires Immediate Fix</span>
-              </div>
-              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-            </div>
-
-            {/* Remediation Progress */}
-            <div className="animate-fade-in-up stagger-4 p-4 rounded-xl bg-card border border-border flex items-center justify-between transition-all duration-300 ease-out hover:-translate-y-1 hover:border-slate-700/80 hover:shadow-lg hover:shadow-cyan-950/20">
-              <div>
-                <p className="text-xs font-medium text-slate-400">Remediation Progress</p>
-                <h3 className="text-2xl font-bold text-emerald-400 mt-1">
-                  <AnimatedCounter value={remediationProgress} suffix="%" />
-                </h3>
-                <span className="text-[11px] text-emerald-400 font-mono">Validated Fixes</span>
-              </div>
-              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                <CheckCircle2 className="w-5 h-5" />
-              </div>
-            </div>
-          </div>
-
-          {/* AI Model & Datasets Intelligence Banner */}
-          <div className="animate-fade-in-up stagger-4 p-4 rounded-xl border border-purple-500/30 bg-gradient-to-r from-purple-950/30 via-slate-900 to-blue-950/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs transition-all duration-300 hover:border-purple-500/50 hover:shadow-md hover:shadow-purple-950/20">
+          {/* AI Model Intelligence Banner */}
+          <div className="p-4 rounded-xl border border-purple-500/30 bg-gradient-to-r from-purple-950/30 via-slate-900 to-blue-950/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-300">
                 <Brain className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-white text-sm">AI Vulnerability Model & Real-World Datasets</span>
+                  <span className="font-bold text-white text-sm">Hybrid AI/ML & Static Analysis Engine</span>
                   <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    90.5% ACCURACY
+                    AST + TAINT + OSV.DEV
                   </span>
                 </div>
                 <p className="text-slate-400 text-xs mt-0.5">
-                  Integrated with Google <strong>OSV.dev REST API</strong> (Open Source Software Composition Analysis) and <strong>ManageEngine Endpoint Central</strong> (Endpoint Security Baselines & CVE Bulletins).
+                  Inter-procedural data-flow tracking with multi-step taint verification and automated remediation synthesis.
                 </p>
               </div>
             </div>
             <button
               onClick={() => navigate('/model-datasets')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-xs font-semibold shrink-0 transition-all duration-200 hover:-translate-y-0.5 shadow hover:shadow-purple-500/25"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shrink-0 transition"
             >
-              <span>Explore Datasets & Model</span>
+              <span>Inspect ML Model</span>
               <Sparkles className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* Analytics Charts Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Severity Distribution */}
-            <div className="animate-fade-in-up stagger-5 lg:col-span-4 p-5 rounded-xl bg-card border border-border space-y-3 transition-all duration-300 hover:border-slate-700/80">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
-                  Findings by Severity
-                </h3>
-                <span className="text-[10px] text-slate-400 font-mono">CVSS / CWE</span>
-              </div>
-              <div className="h-48 w-full flex items-center justify-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={severityDistribution}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={75}
-                      paddingAngle={5}
-                      dataKey="count"
-                      isAnimationActive={true}
-                      animationDuration={1000}
-                      animationEasing="ease-out"
-                    >
-                      {severityDistribution.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#111827', borderColor: '#1E293B', borderRadius: '8px', fontSize: '11px' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
-                {severityDistribution.map((item) => (
-                  <div key={item.name} className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.fill }} />
-                    <span>{item.name}: <strong>{item.count}</strong></span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Vulnerability Categories Bar Chart */}
-            <div className="animate-fade-in-up stagger-5 lg:col-span-8 p-5 rounded-xl bg-card border border-border space-y-3 transition-all duration-300 hover:border-slate-700/80">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
-                  Detected Categories Breakdown
-                </h3>
-                <span className="text-[10px] text-slate-400 font-mono">OWASP Top 10</span>
-              </div>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={DEMO_DASHBOARD_STATS.categoryDistribution} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                    <XAxis 
-                      dataKey="category" 
-                      stroke="#64748B" 
-                      fontSize={10} 
-                      angle={-15} 
-                      textAnchor="end"
-                    />
-                    <YAxis stroke="#64748B" fontSize={10} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#111827', borderColor: '#1E293B', borderRadius: '8px', fontSize: '11px' }}
-                    />
-                    <Bar 
-                      dataKey="count" 
-                      fill="#3B82F6" 
-                      radius={[4, 4, 0, 0]} 
-                      isAnimationActive={true}
-                      animationDuration={1000}
-                      animationEasing="ease-out"
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+          {/* Charts Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <SeverityChart data={severityChartData} />
+            <ScanActivity data={activityData} />
           </div>
+
+          {/* Recent Scans Table */}
+          <RecentScans scans={scans} onDelete={handleDeleteScan} />
         </>
-      )}
-
-      {/* Recent Scans Table */}
-      <div className="animate-fade-in-up stagger-6 p-5 rounded-xl bg-card border border-border space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-white">Recent Security Scans</h3>
-            <p className="text-[11px] text-slate-400">Audited projects and source files</p>
-          </div>
-          <button
-            onClick={() => navigate('/history')}
-            className="text-xs text-primary hover:text-primary-light font-medium flex items-center gap-1 transition-all duration-200 hover:translate-x-0.5"
-          >
-            <span>View All Scans</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {scans.length === 0 ? (
-          <div className="p-8 rounded-lg bg-surface/30 border border-border text-center space-y-3">
-            <Layers className="w-8 h-8 text-slate-500 mx-auto" />
-            <p className="text-xs text-slate-300">No scans found in database.</p>
-            <button
-              onClick={() => navigate('/scan')}
-              className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-medium transition-all duration-200 hover:-translate-y-0.5"
-            >
-              Run Your First Scan
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-surface/50 text-slate-400 font-mono text-[11px] border-b border-border">
-                <tr>
-                  <th className="py-2.5 px-3">Scan ID</th>
-                  <th className="py-2.5 px-3">Project / File</th>
-                  <th className="py-2.5 px-3">Language</th>
-                  <th className="py-2.5 px-3">Scan Date</th>
-                  <th className="py-2.5 px-3">Findings</th>
-                  <th className="py-2.5 px-3">Severity</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {scans.slice(0, 5).map((scan) => (
-                  <tr key={scan.id} className="hover:bg-surface/40 transition-colors duration-150">
-                    <td className="py-3 px-3 font-mono text-cyan-400">{scan.id}</td>
-                    <td className="py-3 px-3">
-                      <div className="font-medium text-slate-200">{scan.projectName}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">{scan.fileName}</div>
-                    </td>
-                    <td className="py-3 px-3 font-mono text-slate-300 uppercase">{scan.language}</td>
-                    <td className="py-3 px-3 text-slate-400">
-                      {new Date(scan.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 px-3 font-mono font-semibold text-slate-200">
-                      {scan.totalFindings}
-                    </td>
-                    <td className="py-3 px-3">
-                      <SeverityBadge severity={scan.highestSeverity} size="sm" />
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 text-[10px] font-mono">
-                        {scan.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-right space-x-2">
-                      <button
-                        onClick={() => navigate(`/results/${scan.id}`)}
-                        className="p-1 rounded hover:bg-surface text-slate-300 hover:text-white transition-all duration-200 hover:scale-110 active:scale-95"
-                        title="View Results"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => navigate(`/reports/${scan.id}`)}
-                        className="p-1 rounded hover:bg-surface text-slate-300 hover:text-white transition-all duration-200 hover:scale-110 active:scale-95"
-                        title="Open Report"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTargetId(scan.id)}
-                        className="p-1 rounded hover:bg-surface text-red-400 hover:text-red-300 transition-all duration-200 hover:scale-110 active:scale-95"
-                        title="Delete scan"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Recent Findings Preview */}
-      <div className="animate-fade-in-up stagger-6 p-5 rounded-xl bg-card border border-border space-y-4">
-        <h3 className="text-sm font-semibold text-white">Latest Vulnerability Findings</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {recentFindings.map((finding) => (
-            <div 
-              key={finding.id} 
-              className="p-3.5 rounded-lg bg-[#0F172A] border border-border hover:border-slate-700 transition-all cursor-pointer"
-              onClick={() => navigate(`/results/${finding.scanId}`)}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <SeverityBadge severity={finding.severity} size="sm" />
-                <span className="text-[10px] font-mono text-slate-400">
-                  {finding.file}:{finding.startLine}
-                </span>
-              </div>
-              <h4 className="font-semibold text-xs text-slate-200 line-clamp-1">
-                {finding.title}
-              </h4>
-              <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">
-                {finding.description}
-              </p>
-              <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/50 text-[10px] text-slate-400">
-                <span className="font-mono text-cyan-400">{finding.cwe}</span>
-                <span className="text-emerald-400 flex items-center gap-1">
-                  <span>Remediation available</span>
-                  <ExternalLink className="w-2.5 h-2.5" />
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Delete Confirmation Modal */}
-      {deleteTargetId && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
-            <h3 className="font-bold text-sm text-white">Confirm Deletion</h3>
-            <p className="text-xs text-slate-300">
-              Are you sure you want to delete scan record <code className="text-cyan-400">{deleteTargetId}</code>? This action cannot be undone.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => setDeleteTargetId(null)}
-                className="px-3 py-1.5 rounded-lg bg-surface border border-border text-slate-300 text-xs hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDeleteScan(deleteTargetId)}
-                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold"
-              >
-                Delete Scan
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
 };
+
+export default DashboardPage;

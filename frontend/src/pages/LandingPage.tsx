@@ -62,6 +62,12 @@ export const LandingPage: React.FC = () => {
             <LayoutDashboard className="w-4 h-4" />
             <span>Explore Dashboard</span>
           </button>
+          <button
+            onClick={() => navigate('/login')}
+            className="flex items-center gap-2 px-5 py-3 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 text-sm font-semibold transition"
+          >
+            <span>Sign In</span>
+          </button>
         </div>
       </div>
 

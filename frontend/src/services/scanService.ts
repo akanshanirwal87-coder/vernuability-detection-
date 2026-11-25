@@ -34,14 +34,21 @@ export async function createScan(request: ScanRequest): Promise<ScanResult> {
 
   if (health.online) {
     try {
-      const response = await apiClient.post<ScanResult>('/api/scans', request);
-      const serverResult = response.data;
-      // Also cache locally for seamless navigation
+      const response = await apiClient.post<any>('/api/v1/scans', request);
+      const serverResult: ScanResult = response.data.data || response.data;
       const current = getLocalScans().filter(s => s.id !== serverResult.id);
       saveLocalScans([serverResult, ...current]);
       return serverResult;
     } catch (err) {
-      console.warn('Backend scan failed, utilizing local deterministic analysis fallback', err);
+      try {
+        const response = await apiClient.post<ScanResult>('/api/scans', request);
+        const serverResult = response.data;
+        const current = getLocalScans().filter(s => s.id !== serverResult.id);
+        saveLocalScans([serverResult, ...current]);
+        return serverResult;
+      } catch (e2) {
+        console.warn('Backend scan failed, utilizing local deterministic analysis fallback', e2);
+      }
     }
   }
 
@@ -244,15 +251,66 @@ export async function createScan(request: ScanRequest): Promise<ScanResult> {
   return localResult;
 }
 
+export async function uploadFileScan(
+  file: File,
+  projectName: string = 'Uploaded Scan',
+  language: string = 'python',
+  projectId?: string
+): Promise<ScanResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('projectName', projectName);
+  formData.append('language', language);
+  if (projectId) {
+    formData.append('projectId', projectId);
+  }
+
+  const response = await apiClient.post<any>('/api/v1/scans/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  const serverResult: ScanResult = response.data.data || response.data;
+  const current = getLocalScans().filter(s => s.id !== serverResult.id);
+  saveLocalScans([serverResult, ...current]);
+  return serverResult;
+}
+
 export async function getScans(): Promise<ScanHistoryItem[]> {
   const health = await checkBackendHealth();
 
   if (health.online) {
     try {
-      const response = await apiClient.get<ScanHistoryItem[]>('/api/scans');
-      return response.data;
+      const response = await apiClient.get<any>('/api/v1/scans');
+      const items = response.data.data?.items || response.data.data || response.data;
+      if (Array.isArray(items)) {
+        return items.map((s: any) => {
+          let countObj = { total: 0, critical: 0, high: 0, medium: 0, low: 0 };
+          if (s.findingsCount && typeof s.findingsCount === 'object') {
+            countObj = s.findingsCount;
+          } else if (s.findings_count_json) {
+            try { countObj = JSON.parse(s.findings_count_json); } catch {}
+          }
+          return {
+            id: s.id,
+            projectName: s.projectName || s.project_name || 'Direct Scan',
+            fileName: s.fileName || s.file_name || 'source_code',
+            language: s.language || 'python',
+            createdAt: s.createdAt || s.created_at || new Date().toISOString(),
+            totalFindings: countObj.total ?? (s.findings?.length ?? 0),
+            highestSeverity: s.highestSeverity || s.highest_severity || 'LOW',
+            status: s.status || 'COMPLETED',
+            isDemo: false,
+          };
+        });
+      }
     } catch (err) {
-      console.warn('Failed to load scans from backend, using local store', err);
+      try {
+        const response = await apiClient.get<ScanHistoryItem[]>('/api/scans');
+        return response.data;
+      } catch (e2) {
+        console.warn('Failed to load scans from backend, using local store', e2);
+      }
     }
   }
 
@@ -264,7 +322,7 @@ export async function getScans(): Promise<ScanHistoryItem[]> {
     fileName: s.fileName,
     language: s.language,
     createdAt: s.createdAt,
-    totalFindings: s.findingsCount.total,
+    totalFindings: s.findingsCount?.total || (s.findings?.length ?? 0),
     highestSeverity: s.highestSeverity,
     status: s.status,
     isDemo: s.isDemo
@@ -276,10 +334,37 @@ export async function getScanById(id: string): Promise<ScanResult | null> {
 
   if (health.online) {
     try {
-      const response = await apiClient.get<ScanResult>(`/api/scans/${id}`);
-      return response.data;
+      const response = await apiClient.get<any>(`/api/v1/scans/${id}`);
+      const raw = response.data.data || response.data;
+      if (raw) {
+        return {
+          id: raw.id,
+          projectName: raw.projectName || raw.project_name || 'Direct Scan',
+          fileName: raw.fileName || raw.file_name || 'source_code',
+          language: raw.language || 'python',
+          createdAt: raw.createdAt || raw.created_at || new Date().toISOString(),
+          completedAt: raw.completedAt || raw.completed_at,
+          status: raw.status || 'COMPLETED',
+          durationMs: raw.durationMs || raw.duration_ms || 120,
+          linesAnalyzed: raw.linesAnalyzed || raw.lines_analyzed || 50,
+          sourceCode: raw.sourceCode || raw.source_code || '',
+          highestSeverity: raw.highestSeverity || raw.highest_severity || 'LOW',
+          findingsCount: typeof raw.findingsCount === 'object' 
+            ? raw.findingsCount 
+            : (raw.findings_count_json ? JSON.parse(raw.findings_count_json) : { total: 0, critical: 0, high: 0, medium: 0, low: 0 }),
+          findings: raw.findings || [],
+          astSummary: raw.astSummary || (raw.ast_summary_json ? JSON.parse(raw.ast_summary_json) : undefined),
+          mlAnalysis: raw.mlAnalysis || (raw.ml_summary_json ? JSON.parse(raw.ml_summary_json) : undefined),
+          isDemo: false
+        };
+      }
     } catch (err) {
-      console.warn('Backend getScan failed, falling back to local store', err);
+      try {
+        const response = await apiClient.get<ScanResult>(`/api/scans/${id}`);
+        return response.data;
+      } catch (e2) {
+        console.warn('Backend getScan failed, falling back to local store', e2);
+      }
     }
   }
 
@@ -296,13 +381,21 @@ export async function validateFix(scanId: string, findingId: string, proposedCod
 
   if (health.online) {
     try {
-      const response = await apiClient.post<FixValidationResponse>(`/api/scans/${scanId}/validate-fix`, {
+      const response = await apiClient.post<any>(`/api/v1/scans/${scanId}/validate-fix`, {
         findingId,
         proposedCode
       });
-      return response.data;
+      return response.data.data || response.data;
     } catch (err) {
-      console.warn('Backend validation failed, executing local validation', err);
+      try {
+        const response = await apiClient.post<FixValidationResponse>(`/api/scans/${scanId}/validate-fix`, {
+          findingId,
+          proposedCode
+        });
+        return response.data;
+      } catch (e2) {
+        console.warn('Backend fix validation failed, using deterministic verification engine', e2);
+      }
     }
   }
 
