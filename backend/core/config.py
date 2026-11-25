@@ -80,11 +80,24 @@ class Settings:
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 
-    # Storage
+    # Storage & Database
     DB_PATH: str = os.getenv(
         "DB_PATH",
         str(Path(__file__).resolve().parent.parent / "scans.db")
     )
+    # PostgreSQL & SQLAlchemy 2.x Database URL
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL",
+        f"sqlite:///{Path(__file__).resolve().parent.parent / 'scans.db'}"
+    )
+    TEST_DATABASE_URL: str = os.getenv(
+        "TEST_DATABASE_URL",
+        "sqlite:///:memory:"
+    )
+
+    # Token Lifespans
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 
 settings = Settings()

@@ -254,47 +254,96 @@ In Phase 1, the platform was hardened from an experimental prototype into a prod
 - **Structured Secure Logging**: Automatic redaction of sensitive credentials (`Authorization`, `password`, `token`, `secret`) and safe unhandled exception handling that hides raw internal stack traces from clients.
 
 ### 4. Dynamic Diagnostic Health Checks
-- **Live Connectivity Probes**: `GET /health` runs live probes against SQLite (`SELECT 1`), verifies ML model files and checksums, and tests OSV.dev REST API availability with strict 2-second timeouts (`services/health_service.py`).
+- **Live Connectivity Probes**: `GET /health` runs live probes against the database (`SELECT 1`), verifies ML model files and checksums, and tests OSV.dev REST API availability with strict 2-second timeouts (`services/health_service.py`).
 - **Status Tiering**: Accurately reports `healthy`, `degraded` (e.g. offline mode when OSV is unreachable), or `unhealthy` (database failure) without exposing credentials or internal paths.
+
+---
+
+## 5. Professional Backend Architecture (Phase 2)
+
+SecureCode AI Phase 2 introduces a layered, scalable backend architecture built with FastAPI, PostgreSQL / SQLite dual-engine support, SQLAlchemy 2.x, Alembic, and Argon2id authentication.
+
+### Key Architectural Pillars
+- **Layered Clean Architecture**: Strict separation of concerns between API routing (`api/v1/`), Business Logic (`services/`), Data Access (`db/repositories/`), and Declarative ORM Models (`db/models.py`).
+- **Dual-Engine Database Layer**: Seamless operation on PostgreSQL in production with connection pooling (`pool_size=10, max_overflow=20`), and local SQLite fallback for rapid testing and offline evaluation.
+- **Alembic Database Migrations**: Automated schema version tracking with transactional forward and rollback migration support.
+- **OWASP-Compliant Security**: Argon2id password hashing with backward-compatible legacy PBKDF2 hash verification, cryptographic refresh-token rotation, and Role-Based Access Control (`USER` / `ADMIN`).
+- **Standardized Response Envelope**: All endpoints under `/api/v1` return standardized responses conforming to `{ success, message, data, error_code }`.
+- **Comprehensive Documentation**: Complete specifications available in the [`docs/`](file:///workspaces/vernuability-detection-/docs/) directory:
+  - [Backend Architecture](file:///workspaces/vernuability-detection-/docs/backend-architecture.md)
+  - [Database Schema & ER Diagram](file:///workspaces/vernuability-detection-/docs/database-schema.md)
+  - [REST API v1 Reference](file:///workspaces/vernuability-detection-/docs/api-documentation.md)
+  - [SQLite to PostgreSQL Migration Guide](file:///workspaces/vernuability-detection-/docs/migration-guide.md)
+  - [Phase 2 Changelog](file:///workspaces/vernuability-detection-/docs/phase-2-changelog.md)
+
+---
+
+### Running Database Migrations (Alembic)
+
+```bash
+cd backend
+
+# View current migration status
+alembic current
+
+# Apply latest migrations
+alembic upgrade head
+
+# Rollback one migration if needed
+alembic downgrade -1
+```
 
 ---
 
 ### Running Automated Test Suite
 
-The comprehensive pytest suite covers ML leakage prevention, SCA version parsing, backend security controls, upload validation, RBAC, and health probes:
+The test suite covers ML leakage prevention, SCA version parsing, backend security controls, upload validation, RBAC, health probes, repositories, services, and API v1 endpoints:
 
 ```bash
 # Activate virtual environment
 source .venv/bin/activate
 
-# Run full test suite with verbose output
-PYTHONPATH=backend pytest tests/ -v
+# Run full test suite (Phase 1 + Phase 2) with verbose output
+PYTHONPATH=backend pytest backend/tests/ tests/ -v
 ```
 
-All 27 automated unit and integration tests pass cleanly.
+All **58 automated unit and integration tests** pass cleanly with 100% pass rate.
 
 ---
 
 ```text
 vernuability-detection-/
 ├── backend/
+│   ├── alembic/               # Alembic database migration revisions and environment
+│   ├── alembic.ini            # Alembic configuration
 │   ├── analyzer/              # AST parsing, JS regex rules, OSV client, ManageEngine client
+│   ├── api/
+│   │   └── v1/                # Versioned API routes (auth, projects, scans, findings, deps, reports, health)
+│   ├── core/                  # Core settings, Argon2id security, RBAC permissions, structured logging
 │   ├── data/                  # Security datasets and training samples
+│   ├── db/
+│   │   ├── database.py        # Centralized SQLAlchemy engine, session management, pooling
+│   │   ├── models.py          # SQLAlchemy 2.x declarative models (User, Project, Scan, Finding, Job)
+│   │   ├── migrate_sqlite_to_pg.py # Transactional migration tool from SQLite to PostgreSQL
+│   │   └── repositories/      # Repository pattern (BaseRepository, User, Project, Scan repositories)
 │   ├── ml_engine/             # Hybrid ML models (TF-IDF + Security Sinks), classifier & training
 │   │   └── models/            # Serialized models (.pkl) & metrics
-│   ├── main.py                # FastAPI REST API endpoints
-│   ├── models.py              # Pydantic request & response data schemas
-│   ├── storage.py             # SQLite scan history and persistence
+│   ├── schemas/               # Pydantic v2 validation schemas for requests, responses, envelopes
+│   ├── services/              # Business logic services (Auth, Project, Scan, Finding, Report, Health)
+│   ├── tests/                 # Phase 2 test suite (Auth, Projects, Scans, DB, Permissions, API)
+│   ├── main.py                # Lightweight FastAPI app initialization and route registration
 │   ├── requirements.txt       # Python package dependencies
-│   └── scans.db               # SQLite database
+│   └── scans.db               # SQLite database (development & fallback)
+├── docs/                      # Comprehensive technical architecture & database documentation
 ├── frontend/
 │   ├── src/
-│   │   ├── components/        # UI components (Monaco Editor, Visualizations, Drawers)
+│   │   ├── components/        # UI components (Monaco Editor, Visualizations, AuthModal, Drawers)
 │   │   ├── pages/             # App pages (Dashboard, Scan, Results, Remediation, etc.)
-│   │   ├── services/          # API client and demo fixture fallback
+│   │   ├── services/          # API client with JWT interceptor and demo fixture fallback
 │   │   └── types/             # TypeScript definitions
 │   ├── package.json           # Node.js dependencies and build scripts
 │   └── vite.config.ts         # Vite server configuration (with network host support)
+├── tests/                     # Phase 1 foundation test suite
 ├── start_all.sh               # One-click launcher for Linux/Codespaces (both services)
 ├── start_backend.sh           # Linux launcher for FastAPI backend
 ├── start_frontend.sh          # Linux launcher for React frontend

@@ -61,16 +61,25 @@ def get_current_user_optional(
     """
     # 1. Check API Key
     if api_key and api_key == settings.ADMIN_API_KEY:
-        return {"username": settings.ADMIN_USERNAME, "role": "admin", "auth_type": "api_key"}
+        return {
+            "id": "admin-system-id",
+            "username": settings.ADMIN_USERNAME,
+            "email": "admin@securecode.ai",
+            "role": "ADMIN",
+            "auth_type": "api_key",
+        }
 
     # 2. Check Bearer Token
     if auth and auth.credentials:
         payload = decode_access_token(auth.credentials)
         if payload:
+            role = payload.get("role", "USER").upper()
             return {
+                "id": payload.get("sub", "user"),
                 "username": payload.get("sub", "user"),
-                "role": payload.get("role", "developer"),
-                "auth_type": "jwt"
+                "email": payload.get("email"),
+                "role": role,
+                "auth_type": "jwt",
             }
 
     return None
@@ -95,9 +104,9 @@ def get_current_user(
 
 def require_admin(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """
-    Role-Based Access Control: Require 'admin' role.
+    Role-Based Access Control: Require 'ADMIN' role.
     """
-    if user.get("role") != "admin":
+    if str(user.get("role", "")).upper() != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrative privileges required to perform this operation."

@@ -6,55 +6,78 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import jwt
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHashError
 
 from core.config import settings
 
+# Initialize Argon2id Hasher with secure OWASP parameters
+_ph = PasswordHasher(
+    time_cost=2,
+    memory_cost=65536,
+    parallelism=1,
+    hash_len=32,
+    salt_len=16
+)
 PBKDF2_ITERATIONS = 100000
 
 
-def hash_password(password: str, salt: Optional[str] = None) -> str:
+def hash_password(password: str) -> str:
     """
-    Hash a password securely using PBKDF2-HMAC-SHA256 with 100,000 iterations.
-    Format: pbkdf2:sha256:<iterations>$<salt_hex>$<hash_hex>
+    Hash a password securely using Argon2id.
     """
-    if salt is None:
-        salt_bytes = secrets.token_bytes(16)
-        salt_hex = salt_bytes.hex()
-    else:
-        salt_bytes = bytes.fromhex(salt)
-        salt_hex = salt
-
-    derived_key = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt_bytes,
-        PBKDF2_ITERATIONS
-    )
-    return f"pbkdf2:sha256:{PBKDF2_ITERATIONS}${salt_hex}${derived_key.hex()}"
+    return _ph.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify password against stored PBKDF2 hash using constant-time comparison.
+    Verify password against stored hash.
+    Supports modern Argon2id ($argon2id$) and legacy PBKDF2 (pbkdf2:) for seamless migration.
     """
-    try:
-        parts = hashed_password.split("$")
-        if len(parts) != 3:
-            return False
-        meta, salt_hex, expected_hash = parts
-        _, _, iterations_str = meta.split(":")
-        iterations = int(iterations_str)
-        salt_bytes = bytes.fromhex(salt_hex)
-
-        actual_key = hashlib.pbkdf2_hmac(
-            "sha256",
-            plain_password.encode("utf-8"),
-            salt_bytes,
-            iterations
-        )
-        return hmac.compare_digest(actual_key.hex(), expected_hash)
-    except Exception:
+    if not hashed_password or not plain_password:
         return False
+
+    # 1. Check for Argon2 hash
+    if hashed_password.startswith("$argon2"):
+        try:
+            return _ph.verify(hashed_password, plain_password)
+        except (VerifyMismatchError, InvalidHashError):
+            return False
+        except Exception:
+            return False
+
+    # 2. Check for PBKDF2 hash (legacy / dev default)
+    if hashed_password.startswith("pbkdf2:"):
+        try:
+            parts = hashed_password.split("$")
+            if len(parts) != 3:
+                return False
+            meta, salt_hex, expected_hash = parts
+            _, _, iterations_str = meta.split(":")
+            iterations = int(iterations_str)
+            salt_bytes = bytes.fromhex(salt_hex)
+
+            actual_key = hashlib.pbkdf2_hmac(
+                "sha256",
+                plain_password.encode("utf-8"),
+                salt_bytes,
+                iterations
+            )
+            return hmac.compare_digest(actual_key.hex(), expected_hash)
+        except Exception:
+            return False
+
+    return False
+
+
+def generate_refresh_token() -> str:
+    """Generate a high-entropy cryptographically secure refresh token."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_token(token: str) -> str:
+    """Compute SHA-256 hash of a refresh token for safe database persistence."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:

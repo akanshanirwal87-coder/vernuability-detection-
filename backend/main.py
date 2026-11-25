@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -13,7 +14,9 @@ from core.config import settings
 from core.security import validate_upload, sanitize_filename
 from core.permissions import require_admin, check_rate_limit, get_current_user_optional
 from core.logging_config import logger
+from core.exceptions import AppException
 from api.auth import router as auth_router
+from api.v1.router import api_v1_router
 from services.health_service import health_service
 from analyzer.dependency_parser import DependencyParser
 from analyzer.sca_scanner import sca_scanner
@@ -49,19 +52,71 @@ app = FastAPI(
     version=settings.APP_VERSION
 )
 
-# Mount Authentication Router
+# Mount Authentication Router (Phase 1 legacy & v1)
 app.include_router(auth_router)
+# Mount Modular API v1 Router (Phase 2 Professional Architecture)
+app.include_router(api_v1_router)
+
+# Application Exception Handler (Phase 2 standardized error envelope)
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": exc.message,
+            "error_code": exc.error_code,
+            "details": exc.details
+        }
+    )
+
+# Request Validation Error Handler (Phase 2 standardized validation error envelope)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/v1"):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "message": "Validation error in request parameters",
+                "error_code": "VALIDATION_ERROR",
+                "details": exc.errors()
+            }
+        )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()}
+    )
 
 # Safe Unhandled Exception Handler (Never leak secrets or internal tracebacks)
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     if isinstance(exc, HTTPException):
+        if request.url.path.startswith("/api/v1"):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "success": False,
+                    "message": str(exc.detail),
+                    "error_code": "HTTP_ERROR"
+                },
+                headers=getattr(exc, "headers", None)
+            )
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
             headers=getattr(exc, "headers", None)
         )
     logger.error(f"Unhandled server error on {request.method} {request.url.path}: {str(exc)}", exc_info=True)
+    if request.url.path.startswith("/api/v1"):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "An internal server error occurred.",
+                "error_code": "INTERNAL_SERVER_ERROR"
+            }
+        )
     return JSONResponse(
         status_code=500,
         content={"detail": "An internal server error occurred."}

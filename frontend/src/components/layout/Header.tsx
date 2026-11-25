@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { checkBackendHealth } from '../../services/apiClient';
+import { checkBackendHealth, getStoredUser, UserProfile } from '../../services/apiClient';
+import { AuthModal } from '../common/AuthModal';
 import { 
   PlusCircle, 
   Server, 
@@ -19,6 +20,8 @@ export const Header: React.FC = () => {
   const location = useLocation();
   const [backendOnline, setBackendOnline] = useState<boolean>(false);
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
+  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getStoredUser());
 
   useEffect(() => {
     checkBackendHealth().then(res => setBackendOnline(res.online));
@@ -133,13 +136,33 @@ export const Header: React.FC = () => {
           )}
         </div>
 
-        {/* Profile Tag */}
-        <div className="flex items-center gap-2 pl-2 border-l border-border text-xs text-slate-300">
-          <div className="w-7 h-7 rounded-full bg-surface border border-border flex items-center justify-center text-cyan-400 font-semibold text-xs">
-            AI
+        {/* User Authentication & Profile Pill */}
+        <button
+          onClick={() => setIsAuthOpen(true)}
+          className="flex items-center gap-2 pl-3 border-l border-border/80 text-xs text-slate-300 hover:text-slate-100 transition-colors group cursor-pointer"
+          title={currentUser ? `Signed in as ${currentUser.name}` : "Sign In / Register"}
+        >
+          <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 group-hover:border-cyan-500/60 flex items-center justify-center text-cyan-400 font-semibold text-xs transition-colors">
+            {currentUser ? currentUser.name.charAt(0).toUpperCase() : <User className="w-3.5 h-3.5 text-slate-400" />}
           </div>
-        </div>
+          <div className="hidden lg:flex flex-col text-left">
+            <span className="font-medium text-slate-200 text-xs leading-none">
+              {currentUser ? currentUser.name : "Sign In"}
+            </span>
+            <span className="text-[10px] text-slate-400 leading-tight">
+              {currentUser ? currentUser.role : "Account"}
+            </span>
+          </div>
+        </button>
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        currentUser={currentUser}
+        onAuthChange={(user) => setCurrentUser(user)}
+      />
     </header>
   );
 };
