@@ -1,0 +1,36 @@
+# Directories and cache files to exclude from Docker build context
+.git
+.gitignore
+.github
+.venv
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite
+*.db
+scans.db
+
+# Frontend build artifacts and node dependencies
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+
+# IDE and OS temporary files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local env files
+.env
+.env.local
+.env.*.local

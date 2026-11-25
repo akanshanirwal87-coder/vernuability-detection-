@@ -22,14 +22,17 @@ import {
 } from 'lucide-react';
 import { SAMPLE_CODE_SNIPPETS } from '../services/sampleCode';
 import type { SampleSnippet } from '../services/sampleCode';
-import { createScan, scanProjectMultiFile } from '../services/scanService';
+import { createScan, scanProjectMultiFile, getRepositoryInfo } from '../services/scanService';
 import type { ScanRequest, ScanOptions } from '../types/scan';
+import { useScan } from '../hooks/useScan';
+import { ScanProgress } from '../components/scanner/ScanProgress';
 import { CodeScanline } from '../components/common/CodeScanline';
 import { toast } from 'sonner';
 
 export const NewScanPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { runRepositoryScan, activeJob, cancelJob } = useScan();
 
   // Form states
   const initialProjectId = (location.state as any)?.projectId;
@@ -39,10 +42,17 @@ export const NewScanPage: React.FC = () => {
   const [projectName, setProjectName] = useState<string>(initialProjectName);
   const [fileName, setFileName] = useState<string>('auth_service.py');
   const [language, setLanguage] = useState<'python' | 'javascript' | 'typescript'>('python');
-  const [inputTab, setInputTab] = useState<'editor' | 'upload' | 'multi-file'>('editor');
+  const [inputTab, setInputTab] = useState<'editor' | 'upload' | 'multi-file' | 'github'>('editor');
   const [sourceCode, setSourceCode] = useState<string>(SAMPLE_CODE_SNIPPETS[0].vulnerableCode);
   const [selectedSnippetId, setSelectedSnippetId] = useState<string>(SAMPLE_CODE_SNIPPETS[0].id);
   const [snippetMode, setSnippetMode] = useState<'vulnerable' | 'secure'>('vulnerable');
+
+  // GitHub Scanning State
+  const [repoUrl, setRepoUrl] = useState<string>('https://github.com/akanshanirwal87-coder/vernuability-detection-');
+  const [repoBranch, setRepoBranch] = useState<string>('main');
+  const [repoToken, setRepoToken] = useState<string>('');
+  const [repoMeta, setRepoMeta] = useState<any>(null);
+  const [inspectingRepo, setInspectingRepo] = useState<boolean>(false);
 
   // Multi-File Project Batch State
   interface ProjectBatchFile {
@@ -243,6 +253,42 @@ export const NewScanPage: React.FC = () => {
       clearInterval(interval);
       setScanning(false);
       toast.error('Multi-file scan encountered an error.');
+    }
+  };
+
+  const handleInspectRepo = async () => {
+    setInspectingRepo(true);
+    try {
+      const meta = await getRepositoryInfo(repoUrl, repoToken || undefined);
+      setRepoMeta(meta);
+      if (meta.default_branch) setRepoBranch(meta.default_branch);
+      toast.success(`Repository verified: ${meta.full_name}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Could not inspect repository');
+    } finally {
+      setInspectingRepo(false);
+    }
+  };
+
+  const handleStartRepoScan = async () => {
+    if (!repoUrl.trim()) {
+      toast.error('Repository URL is required');
+      return;
+    }
+    setScanning(true);
+    try {
+      const result = await runRepositoryScan({
+        repositoryUrl: repoUrl.trim(),
+        branch: repoBranch.trim() || undefined,
+        projectId,
+        githubToken: repoToken.trim() || undefined,
+      });
+      toast.success(`Repository scan completed: ${result.findingsCount.total} findings identified.`);
+      navigate(`/results/${result.id}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Repository scan failed');
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -458,6 +504,17 @@ export const NewScanPage: React.FC = () => {
                   <Files className="w-3.5 h-3.5 text-cyan-400" />
                   <span>Multi-File Project Batch</span>
                 </button>
+                <button
+                  onClick={() => setInputTab('github')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    inputTab === 'github'
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-surface'
+                  }`}
+                >
+                  <FolderGit2 className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>GitHub Repository</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2 text-xs">
@@ -629,118 +686,230 @@ export const NewScanPage: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Tab 4: GitHub Repository Asynchronous Scan */}
+            {inputTab === 'github' && (
+              <div className="p-6 space-y-5 bg-[#0B1020]">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <FolderGit2 className="w-4 h-4 text-indigo-400" />
+                    <span>Scan GitHub Repository (Asynchronous Engine)</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Connect an open-source or private GitHub repository to run multi-file AST, taint analysis, and OSV dependency scanning in the background.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                      GitHub Repository HTTPS URL *
+                    </label>
+                    <div className="relative mt-1.5">
+                      <input
+                        type="url"
+                        value={repoUrl}
+                        onChange={(e) => setRepoUrl(e.target.value)}
+                        placeholder="https://github.com/owner/repository"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 font-mono transition focus:border-indigo-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                        Branch or Tag
+                      </label>
+                      <input
+                        type="text"
+                        value={repoBranch}
+                        onChange={(e) => setRepoBranch(e.target.value)}
+                        placeholder="main"
+                        className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs text-white placeholder-slate-500 font-mono transition focus:border-indigo-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                        GitHub Token (Optional for Private Repos)
+                      </label>
+                      <input
+                        type="password"
+                        value={repoToken}
+                        onChange={(e) => setRepoToken(e.target.value)}
+                        placeholder="ghp_••••••••••••"
+                        className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs text-white placeholder-slate-500 font-mono transition focus:border-indigo-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleInspectRepo}
+                      disabled={inspectingRepo || !repoUrl.trim()}
+                      className="px-3.5 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition disabled:opacity-50"
+                    >
+                      {inspectingRepo ? 'Verifying...' : 'Inspect Repository'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStartRepoScan}
+                      disabled={!repoUrl.trim() || scanning}
+                      className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition disabled:opacity-50"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Start Asynchronous Scan</span>
+                    </button>
+                  </div>
+
+                  {repoMeta && (
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-white">{repoMeta.full_name}</span>
+                        <span className="rounded bg-emerald-500/20 px-2 py-0.5 font-mono text-[10px] text-emerald-300 border border-emerald-500/30">
+                          {repoMeta.is_private ? 'PRIVATE' : 'PUBLIC'}
+                        </span>
+                      </div>
+                      <p className="text-slate-300">{repoMeta.description || 'No description provided.'}</p>
+                      <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono pt-1 border-t border-emerald-500/20">
+                        <span>Default: {repoMeta.default_branch}</span>
+                        <span>•</span>
+                        <span>Lang: {repoMeta.language || 'Multi'}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Primary Action Button */}
-          <div className="flex items-center justify-between p-4 rounded-xl bg-card border border-border">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <ShieldAlert className="w-4 h-4 text-amber-400" />
-              <span>
-                {inputTab === 'multi-file' 
-                  ? `Batch Engine: Will scan ${projectFiles.length} files simultaneously with AST + ML.`
-                  : 'Untrusted input: Code is parsed in memory and never executed on the host.'}
-              </span>
-            </div>
+          {inputTab !== 'github' && (
+            <div className="flex items-center justify-between p-4 rounded-xl bg-card border border-border">
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <ShieldAlert className="w-4 h-4 text-amber-400" />
+                <span>
+                  {inputTab === 'multi-file' 
+                    ? `Batch Engine: Will scan ${projectFiles.length} files simultaneously with AST + ML.`
+                    : 'Untrusted input: Code is parsed in memory and never executed on the host.'}
+                </span>
+              </div>
 
-            <button
-              onClick={inputTab === 'multi-file' ? handleStartProjectScan : handleStartScan}
-              disabled={scanning || (inputTab === 'multi-file' ? projectFiles.length === 0 : !sourceCode.trim())}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5 shadow-md shadow-blue-500/20 hover:shadow-blue-500/35"
-            >
-              {scanning ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
-                  <span>Analyzing Project...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>
-                    {inputTab === 'multi-file' 
-                      ? `Scan Multi-File Project (${projectFiles.length} Files)` 
-                      : 'Start Security Scan'}
-                  </span>
-                </>
-              )}
-            </button>
-          </div>
+              <button
+                onClick={inputTab === 'multi-file' ? handleStartProjectScan : handleStartScan}
+                disabled={scanning || (inputTab === 'multi-file' ? projectFiles.length === 0 : !sourceCode.trim())}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary hover:bg-primary-hover active:scale-95 disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-xs font-semibold transition-all duration-200 hover:-translate-y-0.5 shadow-md shadow-blue-500/20 hover:shadow-blue-500/35"
+              >
+                {scanning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Analyzing Project...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>
+                      {inputTab === 'multi-file' 
+                        ? `Scan Multi-File Project (${projectFiles.length} Files)` 
+                        : 'Start Security Scan'}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Multi-Stage Scan Progress Modal */}
       {scanning && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-card border border-cyan-500/30 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl shadow-cyan-950/50 animate-scale-in">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <div className="flex items-center gap-2.5">
-                <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
-                <div>
-                  <h3 className="font-bold text-sm text-white">
-                    Executing Program Security Analysis
-                  </h3>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    Stage {activeStageIndex + 1} of {scanStages.length}: {scanStages[activeStageIndex].title}
-                  </p>
-                </div>
-              </div>
-              <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/70 border border-cyan-800/60 px-2.5 py-1 rounded-lg">
-                {Math.round(((activeStageIndex + 1) / scanStages.length) * 100)}%
-              </span>
-            </div>
-
-            {/* Smooth Progress Indicator Bar */}
-            <div className="w-full bg-[#0B1020] rounded-full h-2 overflow-hidden p-0.5 border border-border">
-              <div 
-                className="bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 h-full rounded-full transition-all duration-300 ease-out shadow-sm shadow-cyan-500/50"
-                style={{ width: `${Math.round(((activeStageIndex + 1) / scanStages.length) * 100)}%` }}
+          {activeJob ? (
+            <div className="max-w-xl w-full">
+              <ScanProgress
+                activeJob={activeJob}
+                repositoryName={repoUrl}
+                onCancel={() => {
+                  if (activeJob) cancelJob(activeJob.jobId);
+                  setScanning(false);
+                }}
               />
             </div>
-
-            {/* Stages Stack */}
-            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-              {scanStages.map((stage, idx) => {
-                const isDone = idx < activeStageIndex;
-                const isCurrent = idx === activeStageIndex;
-                return (
-                  <div
-                    key={idx}
-                    className={`p-3 rounded-lg border text-xs transition-all duration-300 flex items-start gap-3 ${
-                      isDone
-                        ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
-                        : isCurrent
-                        ? 'bg-cyan-950/30 border-cyan-500/60 text-cyan-200 shadow-md shadow-cyan-950/30'
-                        : 'bg-surface/20 border-border/40 text-slate-500 opacity-60'
-                    }`}
-                  >
-                    <div className="mt-0.5">
-                      {isDone ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      ) : isCurrent ? (
-                        <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
-                      ) : (
-                        <div className="w-4 h-4 rounded-full border border-slate-600 flex items-center justify-center text-[9px] font-mono">
-                          {idx + 1}
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-slate-200">
-                        {stage.title}
-                      </h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {stage.desc}
-                      </p>
-                    </div>
+          ) : (
+            <div className="bg-card border border-cyan-500/30 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl shadow-cyan-950/50 animate-scale-in">
+              <div className="flex items-center justify-between pb-3 border-b border-border">
+                <div className="flex items-center gap-2.5">
+                  <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
+                  <div>
+                    <h3 className="font-bold text-sm text-white">
+                      Executing Program Security Analysis
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      Stage {activeStageIndex + 1} of {scanStages.length}: {scanStages[activeStageIndex].title}
+                    </p>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+                <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/70 border border-cyan-800/60 px-2.5 py-1 rounded-lg">
+                  {Math.round(((activeStageIndex + 1) / scanStages.length) * 100)}%
+                </span>
+              </div>
 
-            <div className="pt-2 text-center text-[11px] text-slate-400 font-mono flex items-center justify-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-              <span>Analyzing AST nodes, identifying sinks, and classifying CWE risk...</span>
+              {/* Smooth Progress Indicator Bar */}
+              <div className="w-full bg-[#0B1020] rounded-full h-2 overflow-hidden p-0.5 border border-border">
+                <div 
+                  className="bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 h-full rounded-full transition-all duration-300 ease-out shadow-sm shadow-cyan-500/50"
+                  style={{ width: `${Math.round(((activeStageIndex + 1) / scanStages.length) * 100)}%` }}
+                />
+              </div>
+
+              {/* Stages Stack */}
+              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                {scanStages.map((stage, idx) => {
+                  const isDone = idx < activeStageIndex;
+                  const isCurrent = idx === activeStageIndex;
+                  return (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded-lg border text-xs transition-all duration-300 flex items-start gap-3 ${
+                        isDone
+                          ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
+                          : isCurrent
+                          ? 'bg-cyan-950/30 border-cyan-500/60 text-cyan-200 shadow-md shadow-cyan-950/30'
+                          : 'bg-surface/20 border-border/40 text-slate-500 opacity-60'
+                      }`}
+                    >
+                      <div className="mt-0.5">
+                        {isDone ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        ) : isCurrent ? (
+                          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                        ) : (
+                          <div className="w-4 h-4 rounded-full border border-slate-600 flex items-center justify-center text-[9px] font-mono">
+                            {idx + 1}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-slate-200">
+                          {stage.title}
+                        </h4>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {stage.desc}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2 text-center text-[11px] text-slate-400 font-mono flex items-center justify-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                <span>Analyzing AST nodes, identifying sinks, and classifying CWE risk...</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>

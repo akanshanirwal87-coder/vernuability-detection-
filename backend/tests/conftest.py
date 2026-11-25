@@ -14,7 +14,7 @@ if backend_dir not in sys.path:
 
 from core.config import settings
 from db.database import Base, get_db
-from db.models import User, Project, Scan, Finding
+from db.models import User, Project, Scan, Finding, ScanJob
 from core.security import hash_password, create_access_token
 from main import app
 

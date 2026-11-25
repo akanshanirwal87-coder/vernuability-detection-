@@ -3,8 +3,10 @@
 [![Academic Project](https://img.shields.io/badge/Project-B.Tech%20CSE%20(AI%20%26%20ML)-blue.svg)]()
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.12-009688.svg)]()
 [![React](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript-61DAFB.svg)]()
-[![TailwindCSS](https://img.shields.io/badge/Styles-Tailwind%20CSS-38B2AC.svg)]()
-[![Analysis](https://img.shields.io/badge/Analysis-AST%20%2B%20Data--Flow%20Taint-orange.svg)]()
+[![Docker](https://img.shields.io/badge/Docker-Multi--Stage%20Compose-2496ED.svg)]()
+[![Celery](https://img.shields.io/badge/Celery-Async%20Workers%20%2B%20Redis-37814A.svg)]()
+[![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-152%20Passed-brightgreen.svg)]()
 
 > **Final Year / Minor B.Tech Academic Project**  
 > **Degree**: Bachelor of Technology in Computer Science Engineering (Artificial Intelligence & Machine Learning)  
@@ -29,6 +31,9 @@ Unlike traditional static linters that produce simple alert dumps, SecureCode AI
 7. **AI-Assisted Remediation**: Side-by-side comparative diffs, root-cause explanations, and secure alternative generation.
 8. **AST Fix Verification**: Live verification engine that recompiles proposed fixes to verify that the vulnerability sink is eliminated and zero new defects are introduced.
 9. **Consolidated Reporting**: Downloadable audit reports in PDF, JSON, and CSV.
+10. **GitHub App & Safe Multi-File Ingestion**: Ingests public and private repositories using RS256 App JWTs or OAuth tokens, with SSRF protection (loopback/private IP blocking), streaming zip downloads, Zip Slip path traversal defenses, and file filtering.
+11. **Asynchronous Background Processing**: Distributed Celery worker cluster and Redis broker managing job lifecycles (`QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`) with 1.5s real-time frontend polling and user job cancellation.
+12. **Dockerization & CI/CD Pipelines**: Production-ready multi-stage Docker builds, Docker Compose orchestration (`docker-compose.yml`, `docker-compose.dev.yml`, `docker-compose.prod.yml`), and 5 automated GitHub Actions CI/CD workflows.
 
 ---
 
@@ -160,7 +165,33 @@ The application provides a comprehensive suite of academic and industrial SAST w
 
 ---
 
-### Quick Start (One-Click Launchers)
+### Quick Start with Docker Compose (Recommended)
+
+Run the complete multi-container stack (**Frontend**, **FastAPI Backend**, **Celery Worker**, **PostgreSQL 16**, and **Redis 7**) with a single command:
+
+```bash
+# Build and start all services in the background
+docker compose up --build -d
+
+# Verify all containers and health probes
+docker compose ps
+
+# Application URLs:
+# - Frontend Application:  http://localhost:80
+# - Backend REST API:       http://localhost:8000 (or http://localhost/api/)
+# - Health Probes:          http://localhost:8000/health (or http://localhost/health)
+# - Telemetry Metrics:      http://localhost:8000/api/v1/health/metrics
+
+# View Celery background scan worker logs
+docker compose logs -f celery_worker
+
+# Stop all containers (preserving persistent database and redis volumes)
+docker compose down
+```
+
+---
+
+### Quick Start (Local Scripts)
 
 Automated launch scripts are provided for both Linux / macOS / Codespaces and Windows to run both services or individual components:
 

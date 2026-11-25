@@ -31,3 +31,15 @@ yarn-error.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Database and test artifacts
+*.sqlite
+*.sqlite3
+*.db
+scans.db
+backend/scans.db
+backend/ml_engine/models/backups/
+.pytest_cache/
+coverage.xml
+.coverage
+htmlcov/

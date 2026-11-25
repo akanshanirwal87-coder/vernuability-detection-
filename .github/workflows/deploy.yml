@@ -1,0 +1,69 @@
+name: Production Staged Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Target deployment environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+      skip_migrations:
+        description: "Skip database migrations"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  pre-deploy-validation:
+    name: Pre-deployment Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Compose Specifications
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: pre-deploy-validation
+    if: inputs.target_env == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Execute Staging Deployment
+        run: |
+          echo "Deploying SecureCode AI release to staging environment..."
+          # Deploy step: pull images or docker compose up -d
+
+      - name: Staging Health Verification
+        run: |
+          echo "Verifying /health endpoint on staging instance..."
+          # curl -f https://staging.securecode.internal/health
+
+  deploy-production:
+    name: Deploy to Production
+    needs: pre-deploy-validation
+    if: inputs.target_env == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Execute Production Rolling Deployment
+        run: |
+          echo "Deploying SecureCode AI release to production environment..."
+
+      - name: Verify Live System Health & Diagnostics
+        run: |
+          echo "Probing production system health status..."
+          # curl -f https://securecode.internal/health

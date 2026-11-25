@@ -903,3 +903,51 @@ export async function scanProjectMultiFile(req: any): Promise<ScanResult> {
   return multiResult;
 }
 
+export interface ScanJobStatusResponse {
+  jobId: string;
+  scanId: string;
+  status: 'PENDING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  progress: number;
+  errorMessage?: string | null;
+  processedFiles: number;
+  totalFiles: number;
+  findingsDiscovered: number;
+  highestSeverity: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export async function enqueueRepositoryScan(data: {
+  repositoryUrl: string;
+  branch?: string;
+  commitSha?: string;
+  projectId?: string;
+  githubToken?: string;
+  force?: boolean;
+}): Promise<{ jobId: string; scanId: string; status: string }> {
+  const res = await apiClient.post<any>('/api/v1/github/scan', data);
+  const payload = res.data.data || res.data;
+  return {
+    jobId: payload.job_id || payload.jobId,
+    scanId: payload.scan_id || payload.scanId,
+    status: payload.status,
+  };
+}
+
+export async function getScanJobStatus(jobId: string): Promise<ScanJobStatusResponse> {
+  const res = await apiClient.get<any>(`/api/v1/github/jobs/${jobId}`);
+  return res.data.data || res.data;
+}
+
+export async function cancelScanJob(jobId: string): Promise<void> {
+  await apiClient.post(`/api/v1/github/jobs/${jobId}/cancel`);
+}
+
+export async function getRepositoryInfo(url: string, token?: string): Promise<any> {
+  const res = await apiClient.get<any>('/api/v1/github/repo-info', {
+    params: { url, token },
+  });
+  return res.data.data || res.data;
+}
+
+

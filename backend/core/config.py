@@ -99,5 +99,33 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
+    # GitHub App & OAuth Integration
+    GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
+    GITHUB_APP_PRIVATE_KEY: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
+    GITHUB_APP_PRIVATE_KEY_PATH: str = os.getenv("GITHUB_APP_PRIVATE_KEY_PATH", "")
+    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
+    GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+    GITHUB_API_BASE_URL: str = os.getenv("GITHUB_API_BASE_URL", "https://api.github.com").rstrip("/")
+    _raw_github_hosts = os.getenv("ALLOWED_GITHUB_HOSTS", "github.com,api.github.com")
+    ALLOWED_GITHUB_HOSTS: List[str] = [
+        h.strip().lower() for h in _raw_github_hosts.split(",") if h.strip()
+    ]
+
+    # Repository Ingestion & Sandboxing Limits
+    MAX_REPO_ARCHIVE_SIZE_BYTES: int = int(os.getenv("MAX_REPO_ARCHIVE_SIZE_BYTES", str(50 * 1024 * 1024)))  # 50 MB
+    MAX_REPO_FILES_COUNT: int = int(os.getenv("MAX_REPO_FILES_COUNT", "1500"))
+    MAX_REPO_FILE_SIZE_BYTES: int = int(os.getenv("MAX_REPO_FILE_SIZE_BYTES", str(1 * 1024 * 1024)))  # 1 MB
+    REPO_DOWNLOAD_TIMEOUT_SECONDS: int = int(os.getenv("REPO_DOWNLOAD_TIMEOUT_SECONDS", "30"))
+    TEMP_DIR_ROOT: str = os.getenv("TEMP_DIR_ROOT", "")
+
+    # Celery & Redis Distributed Processing
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+    CELERY_TASK_TIMEOUT_SECONDS: int = int(os.getenv("CELERY_TASK_TIMEOUT_SECONDS", "600"))
+    CELERY_TASK_SOFT_TIMEOUT_SECONDS: int = int(os.getenv("CELERY_TASK_SOFT_TIMEOUT_SECONDS", "540"))
+
+
 
 settings = Settings()
