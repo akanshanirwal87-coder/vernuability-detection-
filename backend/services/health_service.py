@@ -21,6 +21,8 @@ class HealthService:
 
     def __init__(self, db_path: str = settings.DB_PATH):
         self.db_path = db_path
+        self._osv_cache: Optional[Dict[str, Any]] = None
+        self._osv_cache_ts: float = 0.0
 
     def check_database(self) -> Dict[str, Any]:
         """Perform real probe against database via SQLite or SQLAlchemy engine."""
@@ -207,9 +209,23 @@ class HealthService:
         """
         db_check = self.check_database()
         redis_check = self.check_redis()
-        celery_check = self.check_celery()
+        if redis_check.get("status") == "UP":
+            celery_check = self.check_celery()
+        else:
+            celery_check = {
+                "status": "STANDBY",
+                "workersActive": 0,
+                "workers": [],
+                "mode": "Inline Development Mode",
+            }
         ml_check = self.check_model_loading()
-        osv_check = self.check_osv_availability(timeout=2.0)
+        now = time.time()
+        if self._osv_cache is not None and (now - self._osv_cache_ts) < 30.0:
+            osv_check = self._osv_cache
+        else:
+            osv_check = self.check_osv_availability(timeout=2.0)
+            self._osv_cache = osv_check
+            self._osv_cache_ts = now
         me_check = self.check_manageengine_knowledge_base()
 
         if db_check.get("status") == "DOWN":

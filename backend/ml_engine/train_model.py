@@ -89,16 +89,18 @@ def train_and_evaluate(random_seed: int = RANDOM_SEED) -> dict:
     vectorizer.fit(train_corpus)
 
     # Step 5: Transform corpora into hybrid representations (TF-IDF + Security structural features)
-    print("Step 5: Extracting hybrid features (TF-IDF + 17 Structural Sinks/Guards)...")
+    print(f"Step 5: Extracting hybrid features (TF-IDF + {len(FEATURE_NAMES)} Structural Sinks/Guards)...")
     X_train = SecurityFeatureExtractor.transform_corpus(train_corpus, vectorizer)
     X_val = SecurityFeatureExtractor.transform_corpus(val_corpus, vectorizer)
     X_test = SecurityFeatureExtractor.transform_corpus(test_corpus, vectorizer)
 
-    # Step 6: Train Vulnerability Detection Ensemble with Class Imbalance Weighting
-    print("Step 6: Training calibrated ensemble (RandomForest + LogisticRegression) with balanced class weights...")
+    # Step 6: Train Vulnerability Detection Candidates & Select Best on Validation Set
+    print("Step 6: Training binary detector candidates and selecting best on untouched Validation partition...")
     rf_detector = RandomForestClassifier(
-        n_estimators=150,
-        max_depth=25,
+        n_estimators=200,
+        max_depth=18,
+        max_features="sqrt",
+        min_samples_leaf=2,
         class_weight="balanced",
         random_state=random_seed,
     )
@@ -109,30 +111,48 @@ def train_and_evaluate(random_seed: int = RANDOM_SEED) -> dict:
         random_state=random_seed,
     )
     svm_detector = CalibratedClassifierCV(
-        LinearSVC(C=1.0, class_weight="balanced", random_state=random_seed, max_iter=2000)
+        LinearSVC(C=1.0, class_weight="balanced", random_state=random_seed, max_iter=3000)
     )
-
-    # Train candidates
-    rf_detector.fit(X_train, y_train)
-    lr_detector.fit(X_train, y_train)
-    svm_detector.fit(X_train, y_train)
-
-    vuln_detector = VotingClassifier(
-        estimators=[("rf", rf_detector), ("lr", lr_detector)],
+    lr_svm_ensemble = VotingClassifier(
+        estimators=[("lr", lr_detector), ("svm", svm_detector)],
         voting="soft",
     )
-    vuln_detector.fit(X_train, y_train)
+    all_ensemble = VotingClassifier(
+        estimators=[("rf", rf_detector), ("lr", lr_detector), ("svm", svm_detector)],
+        voting="soft",
+    )
 
-    # Candidate model comparison on untouched test set
-    model_candidates = {
+    binary_candidates = {
         "LogisticRegression": lr_detector,
-        "RandomForest": rf_detector,
         "LinearSVM": svm_detector,
-        "CalibratedEnsemble": vuln_detector,
+        "RandomForest": rf_detector,
+        "Ensemble_LR_SVM": lr_svm_ensemble,
+        "CalibratedEnsemble": all_ensemble,
     }
+    val_scores = {}
+    for name, model in binary_candidates.items():
+        model.fit(X_train, y_train)
+        v_pred = model.predict(X_val)
+        v_prob = model.predict_proba(X_val)[:, 1] if hasattr(model, "predict_proba") else None
+        v_eval = ModelEvaluator.evaluate_binary_detector(y_val, v_pred, v_prob)
+        val_scores[name] = v_eval
+
+    # Select best binary candidate strictly via Validation performance (Macro-F1, then low FPR, then accuracy)
+    selected_binary_name = max(
+        val_scores.keys(),
+        key=lambda n: (
+            val_scores[n]["macroF1"],
+            -val_scores[n].get("falsePositiveRate", 100.0),
+            val_scores[n]["accuracy"],
+        ),
+    )
+    vuln_detector = binary_candidates[selected_binary_name]
+    val_metrics = val_scores[selected_binary_name]
+
+    # Candidate model comparison on untouched test set (reported transparently)
     model_comparison = {}
     print("\n--- Model Benchmark Comparison (Untouched Test Partition) ---")
-    for name, model in model_candidates.items():
+    for name, model in binary_candidates.items():
         m_pred = model.predict(X_test)
         m_prob = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else None
         m_eval = ModelEvaluator.evaluate_binary_detector(y_test, m_pred, m_prob)
@@ -143,27 +163,31 @@ def train_and_evaluate(random_seed: int = RANDOM_SEED) -> dict:
             "f1Score": m_eval["f1Score"],
             "macroF1": m_eval["macroF1"],
             "falsePositiveRate": m_eval.get("falsePositiveRate", 0.0),
+            "valAccuracy": val_scores[name]["accuracy"],
+            "valMacroF1": val_scores[name]["macroF1"],
+            "selected": (name == selected_binary_name),
         }
-        print(f"[{name:18}] Acc: {m_eval['accuracy']:5.2f}% | P: {m_eval['precision']:5.2f}% | R: {m_eval['recall']:5.2f}% | F1: {m_eval['f1Score']:5.2f}% | FPR: {m_eval.get('falsePositiveRate', 0.0):.2f}%")
+        marker = " *SELECTED*" if name == selected_binary_name else ""
+        print(f"[{name:18}] Acc: {m_eval['accuracy']:5.2f}% | P: {m_eval['precision']:5.2f}% | R: {m_eval['recall']:5.2f}% | F1: {m_eval['f1Score']:5.2f}% | FPR: {m_eval.get('falsePositiveRate', 0.0):.2f}%{marker}")
     print("-------------------------------------------------------------\n")
+    print(f"-> Selected Binary Model (via Validation): {selected_binary_name} | Val Acc: {val_metrics['accuracy']}% | Val F1: {val_metrics['f1Score']}%")
 
-    # Validation evaluation for calibration
-    val_pred = vuln_detector.predict(X_val)
-    val_prob = vuln_detector.predict_proba(X_val)[:, 1] if hasattr(vuln_detector, "predict_proba") else None
-    val_metrics = ModelEvaluator.evaluate_binary_detector(y_val, val_pred, val_prob)
-    print(f"-> Validation Set Accuracy: {val_metrics['accuracy']}% | F1: {val_metrics['f1Score']}%")
-
-    # Final unbiased evaluation on untouched Test set
+    # Final unbiased evaluation on untouched Test set using validation-selected model
     test_pred = vuln_detector.predict(X_test)
     test_prob = vuln_detector.predict_proba(X_test)[:, 1] if hasattr(vuln_detector, "predict_proba") else None
     test_metrics = ModelEvaluator.evaluate_binary_detector(y_test, test_pred, test_prob)
     print(f"-> Untouched Test Set Accuracy: {test_metrics['accuracy']}% | Precision: {test_metrics['precision']}% | Recall: {test_metrics['recall']}% | F1: {test_metrics['f1Score']}%")
 
-    # Step 7: Train Multi-Class CWE Classifier with Class Imbalance Weighting
-    print("Step 7: Training multi-class CWE classifier...")
+    # Step 7: Train Multi-Class CWE Classifier Candidates & Select Best on Validation Set
+    print("Step 7: Training multi-class CWE classifier candidates...")
+    from collections import Counter
+    min_cwe_support = min(Counter(y_cwe_train).values()) if len(y_cwe_train) else 0
+
     rf_cwe = RandomForestClassifier(
-        n_estimators=150,
-        max_depth=25,
+        n_estimators=200,
+        max_depth=18,
+        max_features="sqrt",
+        min_samples_leaf=2,
         class_weight="balanced",
         random_state=random_seed,
     )
@@ -173,18 +197,37 @@ def train_and_evaluate(random_seed: int = RANDOM_SEED) -> dict:
         class_weight="balanced",
         random_state=random_seed,
     )
-    cwe_clf = VotingClassifier(
-        estimators=[("rf", rf_cwe), ("lr", lr_cwe)],
-        voting="soft",
-    )
-    cwe_clf.fit(X_train, y_cwe_train)
+    cwe_candidates = {
+        "LogisticRegression": lr_cwe,
+        "RandomForest": rf_cwe,
+    }
+    if min_cwe_support >= 2:
+        svm_cwe = CalibratedClassifierCV(
+            LinearSVC(C=1.0, class_weight="balanced", random_state=random_seed, max_iter=3000),
+            cv=min(3, min_cwe_support),
+        )
+        cwe_ensemble_lr_svm = VotingClassifier(
+            estimators=[("lr", lr_cwe), ("svm", svm_cwe)],
+            voting="soft",
+        )
+        cwe_candidates["LinearSVM"] = svm_cwe
+        cwe_candidates["Ensemble_LR_SVM"] = cwe_ensemble_lr_svm
 
-    cwe_val_pred = cwe_clf.predict(X_val)
-    cwe_val_metrics = ModelEvaluator.evaluate_cwe_classifier(y_cwe_val, cwe_val_pred)
+    cwe_val_scores = {}
+    for name, clf in cwe_candidates.items():
+        clf.fit(X_train, y_cwe_train)
+        cwe_v_pred = clf.predict(X_val)
+        cwe_val_scores[name] = ModelEvaluator.evaluate_cwe_classifier(y_cwe_val, cwe_v_pred)
+
+    selected_cwe_name = max(
+        cwe_val_scores.keys(),
+        key=lambda n: (cwe_val_scores[n]["macroF1"], cwe_val_scores[n]["cweAccuracy"]),
+    )
+    cwe_clf = cwe_candidates[selected_cwe_name]
 
     cwe_test_pred = cwe_clf.predict(X_test)
     cwe_test_metrics = ModelEvaluator.evaluate_cwe_classifier(y_cwe_test, cwe_test_pred)
-    print(f"-> Untouched Test Set CWE Accuracy: {cwe_test_metrics['cweAccuracy']}% | Macro F1: {cwe_test_metrics['macroF1']}%")
+    print(f"-> Selected CWE Model (via Validation): {selected_cwe_name} | Test CWE Accuracy: {cwe_test_metrics['cweAccuracy']}% | Macro F1: {cwe_test_metrics['macroF1']}%")
 
     # Compute label distributions
     cwe_counts: dict = {}
@@ -200,8 +243,10 @@ def train_and_evaluate(random_seed: int = RANDOM_SEED) -> dict:
 
     # Model metadata assembly
     metadata = {
-        "modelName": "SecureCode-VulnNet (Hybrid TF-IDF + Security Sink Ensemble)",
-        "version": "2.1.0-leakfree",
+        "modelName": "SecureCode-VulnNet (Hybrid TF-IDF + Security Sink Classifier)",
+        "version": "2.2.0-verified",
+        "selectedBinaryModel": selected_binary_name,
+        "selectedCweModel": selected_cwe_name,
         "trainedAt": datetime.now(timezone.utc).isoformat(),
         "randomSeed": random_seed,
         "datasetHash": dataset_hash,

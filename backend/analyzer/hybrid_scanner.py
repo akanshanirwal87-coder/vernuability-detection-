@@ -69,19 +69,17 @@ class HybridScanner:
         if self.enable_rules:
             rule_findings = RuleEngine.evaluate_rules(self.source_code, language=self.language, file_name=self.file_name)
 
-        # 4. Machine Learning Classification
+        # 4. Machine Learning Classification (run only when structural detectors find candidate sinks)
         ml_findings: List[Dict[str, Any]] = []
-        if self.enable_ml and vulnerability_classifier.is_ready():
+        structural_findings = ast_findings + taint_findings + rule_findings
+        if self.enable_ml and structural_findings and vulnerability_classifier.is_ready():
             try:
                 raw_ml = vulnerability_classifier.scan_code(self.source_code, self.language, self.file_name)
                 # ML serves strictly as a supporting / corroborating detection component.
-                # Avoid inventing vulnerability evidence on safe code without structural sink corroboration:
-                structural_findings = ast_findings + taint_findings + rule_findings
-                if structural_findings:
-                    for ml_f in raw_ml:
-                        line = ml_f.get("startLine", 1)
-                        if any(abs(f.get("startLine", 1) - line) <= 3 for f in structural_findings):
-                            ml_findings.append(ml_f)
+                for ml_f in raw_ml:
+                    line = ml_f.get("startLine", 1)
+                    if any(abs(f.get("startLine", 1) - line) <= 3 for f in structural_findings):
+                        ml_findings.append(ml_f)
             except Exception:
                 ml_findings = []
 

@@ -32,15 +32,19 @@ class RepositoryValidator:
         if settings.ENVIRONMENT != "development" and parsed.scheme.lower() != "https":
             raise RepositoryValidationError("In production, repository URLs must use HTTPS.")
 
+        # Reject embedded userinfo credentials in URL (phishing / parser differential)
+        if parsed.username or parsed.password:
+            raise RepositoryValidationError("Embedded credentials in repository URL are not permitted.")
+
         hostname = (parsed.hostname or "").lower()
         if not hostname:
             raise RepositoryValidationError("Invalid repository URL: Missing hostname.")
 
-        # Check allowed hosts
-        allowed_hosts = settings.ALLOWED_GITHUB_HOSTS
-        if hostname not in allowed_hosts and not hostname.endswith(".github.com"):
+        # Check exact allowed hosts (never trust arbitrary subdomains)
+        allowed_hosts = set(settings.ALLOWED_GITHUB_HOSTS)
+        if hostname not in allowed_hosts:
             raise RepositoryValidationError(
-                f"Host '{hostname}' is not permitted. Only GitHub repositories are supported ({', '.join(allowed_hosts)})."
+                f"Host '{hostname}' is not permitted. Only GitHub repositories are supported ({', '.join(sorted(allowed_hosts))})."
             )
 
         # SSRF Prevention: Resolve hostname and check IP boundaries

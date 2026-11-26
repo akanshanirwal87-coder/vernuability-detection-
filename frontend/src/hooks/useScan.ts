@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   createScan, 
   uploadFileScan, 
@@ -16,7 +16,16 @@ export function useScan() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [activeJob, setActiveJob] = useState<ScanJobStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const pollingTimerRef = useRef<any>(null);
+  const pollingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollingTimerRef.current) {
+        clearInterval(pollingTimerRef.current);
+        pollingTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const runScan = async (req: ScanRequest): Promise<ScanResult> => {
     setIsScanning(true);
@@ -99,7 +108,25 @@ export function useScan() {
               reject(new Error('Scan was cancelled.'));
             }
           } catch (e: any) {
-            // Transient network error during polling; continue polling
+            const msg = e?.message || '';
+            const status = e?.response?.status;
+            // Stop polling immediately on terminal auth or missing-job errors
+            if (
+              status === 401 ||
+              status === 403 ||
+              status === 404 ||
+              msg.includes('Authentication required') ||
+              msg.includes('Forbidden') ||
+              msg.includes('not found')
+            ) {
+              if (pollingTimerRef.current) {
+                clearInterval(pollingTimerRef.current);
+                pollingTimerRef.current = null;
+              }
+              setIsScanning(false);
+              setError(msg || 'Failed to poll scan job status.');
+              reject(e instanceof Error ? e : new Error(msg || 'Failed to poll scan job status.'));
+            }
           }
         };
 

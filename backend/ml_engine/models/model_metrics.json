@@ -1,15 +1,17 @@
 {
-  "modelName": "SecureCode-VulnNet (Hybrid TF-IDF + Security Sink Ensemble)",
-  "version": "2.1.0-leakfree",
-  "trainedAt": "2026-11-25T19:31:12.881984+00:00",
+  "modelName": "SecureCode-VulnNet (Hybrid TF-IDF + Security Sink Classifier)",
+  "version": "2.2.0-verified",
+  "selectedBinaryModel": "LogisticRegression",
+  "selectedCweModel": "LogisticRegression",
+  "trainedAt": "2026-11-26T06:57:50.091234+00:00",
   "randomSeed": 42,
-  "datasetHash": "34d3bbb332c66583",
-  "totalSamples": 243,
-  "trainSamplesOriginal": 149,
-  "trainSamplesAugmented": 191,
-  "validationSamples": 40,
-  "testSamples": 54,
-  "featuresCount": 3065,
+  "datasetHash": "e815f8e8308b1074",
+  "totalSamples": 291,
+  "trainSamplesOriginal": 188,
+  "trainSamplesAugmented": 233,
+  "validationSamples": 45,
+  "testSamples": 58,
+  "featuresCount": 3649,
   "structuralFeatures": [
     "has_dynamic_interpolation",
     "has_sql_keywords",
@@ -27,142 +29,254 @@
     "has_hardcoded_secret",
     "has_env_secret_retrieval",
     "has_osv_package_pattern",
-    "has_manageengine_endpoint_rule"
+    "has_manageengine_endpoint_rule",
+    "has_dynamic_code_eval",
+    "has_ssrf_network_sink",
+    "has_debug_mode_flag",
+    "has_insecure_tempfile",
+    "has_prototype_pollution"
   ],
-  "accuracy": 77.78,
-  "precision": 65.62,
-  "recall": 95.45,
-  "f1Score": 77.78,
-  "macroPrecision": 80.54,
-  "macroRecall": 80.54,
-  "macroF1": 77.78,
-  "weightedF1": 77.78,
-  "falsePositiveRate": 34.38,
-  "prAuc": 83.13,
-  "rocAuc": 89.63,
+  "accuracy": 89.66,
+  "precision": 81.48,
+  "recall": 95.65,
+  "f1Score": 88.0,
+  "macroPrecision": 89.13,
+  "macroRecall": 90.68,
+  "macroF1": 89.45,
+  "weightedF1": 89.76,
+  "falsePositiveRate": 14.29,
+  "prAuc": 92.27,
+  "rocAuc": 95.4,
   "confusionMatrix": [
     [
-      21,
-      11
+      30,
+      5
     ],
     [
       1,
-      21
+      22
     ]
   ],
   "modelComparison": {
     "LogisticRegression": {
-      "accuracy": 92.59,
-      "precision": 87.5,
-      "recall": 95.45,
-      "f1Score": 91.3,
-      "macroF1": 92.43,
-      "falsePositiveRate": 9.38
-    },
-    "RandomForest": {
-      "accuracy": 46.3,
-      "precision": 42.22,
-      "recall": 86.36,
-      "f1Score": 56.72,
-      "macroF1": 42.99,
-      "falsePositiveRate": 81.25
+      "accuracy": 89.66,
+      "precision": 81.48,
+      "recall": 95.65,
+      "f1Score": 88.0,
+      "macroF1": 89.45,
+      "falsePositiveRate": 14.29,
+      "valAccuracy": 97.78,
+      "valMacroF1": 97.71,
+      "selected": true
     },
     "LinearSVM": {
-      "accuracy": 77.78,
-      "precision": 65.62,
-      "recall": 95.45,
-      "f1Score": 77.78,
-      "macroF1": 77.78,
-      "falsePositiveRate": 34.38
+      "accuracy": 89.66,
+      "precision": 81.48,
+      "recall": 95.65,
+      "f1Score": 88.0,
+      "macroF1": 89.45,
+      "falsePositiveRate": 14.29,
+      "valAccuracy": 97.78,
+      "valMacroF1": 97.71,
+      "selected": false
+    },
+    "RandomForest": {
+      "accuracy": 63.79,
+      "precision": 53.85,
+      "recall": 60.87,
+      "f1Score": 57.14,
+      "macroF1": 62.9,
+      "falsePositiveRate": 34.29,
+      "valAccuracy": 95.56,
+      "valMacroF1": 95.37,
+      "selected": false
+    },
+    "Ensemble_LR_SVM": {
+      "accuracy": 89.66,
+      "precision": 81.48,
+      "recall": 95.65,
+      "f1Score": 88.0,
+      "macroF1": 89.45,
+      "falsePositiveRate": 14.29,
+      "valAccuracy": 97.78,
+      "valMacroF1": 97.71,
+      "selected": false
     },
     "CalibratedEnsemble": {
-      "accuracy": 77.78,
-      "precision": 65.62,
-      "recall": 95.45,
-      "f1Score": 77.78,
-      "macroF1": 77.78,
-      "falsePositiveRate": 34.38
+      "accuracy": 89.66,
+      "precision": 81.48,
+      "recall": 95.65,
+      "f1Score": 88.0,
+      "macroF1": 89.45,
+      "falsePositiveRate": 14.29,
+      "valAccuracy": 97.78,
+      "valMacroF1": 97.71,
+      "selected": false
     }
   },
   "validationMetrics": {
-    "accuracy": 95.0,
-    "precision": 93.75,
-    "recall": 100.0,
-    "f1Score": 96.77,
-    "macroPrecision": 96.88,
-    "macroRecall": 90.0,
-    "macroF1": 92.83,
-    "weightedF1": 94.8,
-    "falsePositiveRate": 20.0,
+    "accuracy": 97.78,
+    "precision": 100.0,
+    "recall": 94.74,
+    "f1Score": 97.3,
+    "macroPrecision": 98.15,
+    "macroRecall": 97.37,
+    "macroF1": 97.71,
+    "weightedF1": 97.77,
+    "falsePositiveRate": 0.0,
     "confusionMatrix": [
       [
-        8,
-        2
+        26,
+        0
       ],
       [
-        0,
-        30
+        1,
+        18
       ]
     ],
-    "prAuc": 98.75,
-    "rocAuc": 96.67,
-    "totalEvaluated": 40
+    "prAuc": 99.06,
+    "rocAuc": 99.19,
+    "totalEvaluated": 45
   },
-  "cweAccuracy": 88.89,
-  "cweMacroF1": 78.3,
-  "cweWeightedF1": 90.72,
+  "cweAccuracy": 84.48,
+  "cweMacroF1": 74.46,
+  "cweWeightedF1": 85.42,
   "cwePerClassMetrics": {
+    "CWE-1321": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1Score": 0.0,
+      "support": 1
+    },
+    "CWE-200": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1Score": 0.0,
+      "support": 0
+    },
     "CWE-22": {
-      "precision": 40.0,
+      "precision": 66.67,
       "recall": 100.0,
-      "f1Score": 57.14,
+      "f1Score": 80.0,
       "support": 2
     },
     "CWE-327": {
       "precision": 100.0,
       "recall": 100.0,
       "f1Score": 100.0,
-      "support": 1
+      "support": 3
     },
-    "CWE-502": {
-      "precision": 83.33,
-      "recall": 83.33,
-      "f1Score": 83.33,
-      "support": 6
+    "CWE-377": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1Score": 100.0,
+      "support": 2
     },
-    "CWE-78": {
+    "CWE-489": {
       "precision": 100.0,
       "recall": 100.0,
       "f1Score": 100.0,
       "support": 1
     },
-    "CWE-79": {
+    "CWE-502": {
       "precision": 100.0,
       "recall": 100.0,
       "f1Score": 100.0,
       "support": 3
     },
-    "CWE-798": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1Score": 0.0,
-      "support": 0
+    "CWE-78": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1Score": 100.0,
+      "support": 2
+    },
+    "CWE-79": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1Score": 100.0,
+      "support": 1
     },
     "CWE-89": {
-      "precision": 100.0,
-      "recall": 88.89,
-      "f1Score": 94.12,
-      "support": 9
+      "precision": 63.64,
+      "recall": 100.0,
+      "f1Score": 77.78,
+      "support": 7
+    },
+    "CWE-918": {
+      "precision": 33.33,
+      "recall": 100.0,
+      "f1Score": 50.0,
+      "support": 1
     },
     "NONE": {
-      "precision": 96.55,
-      "recall": 87.5,
-      "f1Score": 91.8,
-      "support": 32
+      "precision": 96.43,
+      "recall": 77.14,
+      "f1Score": 85.71,
+      "support": 35
     }
   },
   "cweConfusionMatrix": [
     [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
       2,
       0,
       0,
@@ -174,6 +288,10 @@
     ],
     [
       0,
+      0,
+      0,
+      0,
+      0,
       1,
       0,
       0,
@@ -183,26 +301,8 @@
       0
     ],
     [
-      1,
-      0,
-      5,
       0,
       0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      1,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
       0,
       0,
       0,
@@ -210,14 +310,6 @@
       3,
       0,
       0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0,
       0,
       0,
       0
@@ -229,38 +321,92 @@
       0,
       0,
       0,
-      8,
-      1
-    ],
-    [
+      0,
       2,
       0,
-      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0,
       0,
       1,
       0,
-      28
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      7,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      4,
+      2,
+      27
     ]
   ],
   "cweDistribution": {
     "CWE-89": 27,
-    "NONE": 128,
+    "NONE": 152,
     "CWE-78": 22,
     "CWE-22": 14,
     "CWE-502": 14,
     "CWE-798": 13,
     "CWE-327": 11,
     "CWE-79": 10,
+    "CWE-95": 6,
+    "CWE-918": 6,
+    "CWE-489": 4,
+    "CWE-377": 4,
+    "CWE-1321": 5,
     "CWE-200": 1,
     "CWE-400": 1,
-    "CWE-1321": 1,
     "CWE-1333": 1
   },
   "datasetSources": {
-    "OSV.dev (Google / OpenSSF)": 88,
-    "ManageEngine Endpoint Security (CVEs & Baselines)": 118,
-    "Secure Reference Standards": 115
+    "OSV.dev (Google / OpenSSF)": 108,
+    "ManageEngine Endpoint Security (CVEs & Baselines)": 122,
+    "Secure Reference Standards": 149
   },
   "activeConnectors": [
     {
@@ -277,9 +423,9 @@
     }
   ],
   "artifactChecksums": {
-    "vectorizer_sha256": "b6e6067d87412f559e621fc01fdcfb864cde1bd2b63d80343737ac18ebc07470",
-    "vuln_detector_sha256": "215aab1f55cb205bd6b7e85174db0780631a9f9ef3157acc1e9fcfe2a6900755",
-    "cwe_classifier_sha256": "c03857b4225af860d8668fda7e71c125319b6501f911a772cf0a3c7303ebd7de"
+    "vectorizer_sha256": "a1d9fc97a048871367ea0f9e85d8652ec59008101c148a2caf6a83b90ea30bec",
+    "vuln_detector_sha256": "95e5142da33ffe8b8702f0e54c9a586cc8c62c949475b8713c1721ddd7116926",
+    "cwe_classifier_sha256": "3d20ab129077bb14bb1c0d8cc99b5993ff446843718b0ca02de75bdd2ab8d3a2"
   },
-  "savedAt": "2026-11-25T19:31:13.128831+00:00"
+  "savedAt": "2026-11-26T06:57:50.213901+00:00"
 }

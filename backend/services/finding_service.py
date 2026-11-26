@@ -28,7 +28,7 @@ class FindingService:
         if not scan:
             raise EntityNotFoundException("Scan", scan_id)
 
-        if scan.user_id and user_id and not is_admin and scan.user_id != user_id:
+        if not is_admin and (not user_id or not scan.user_id or scan.user_id != user_id):
             raise AuthorizationException("Access denied: You cannot view findings for this scan.")
 
         finding_objs, total = self.repo.get_findings_paginated(
@@ -82,7 +82,9 @@ class FindingService:
             raise EntityNotFoundException("Finding", finding_id)
 
         scan = self.repo.get(finding.scan_id)
-        if scan and scan.user_id and user_id and not is_admin and scan.user_id != user_id:
+        if not scan:
+            raise EntityNotFoundException("Scan", finding.scan_id)
+        if not is_admin and (not user_id or not scan.user_id or scan.user_id != user_id):
             raise AuthorizationException("Access denied: You cannot modify this finding.")
 
         updated = self.repo.update_finding_validation(finding_id, status, explanation)

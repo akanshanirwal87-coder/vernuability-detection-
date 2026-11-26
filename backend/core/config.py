@@ -77,8 +77,9 @@ class Settings:
         ".json", ".toml", ".txt"
     ]
 
-    # Rate Limiting
+    # Rate Limiting & Proxy Trust
     RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+    TRUST_PROXY_HEADERS: bool = os.getenv("TRUST_PROXY_HEADERS", "false").lower() in ("true", "1", "yes")
 
     # Storage & Database
     DB_PATH: str = os.getenv(
@@ -114,6 +115,7 @@ class Settings:
 
     # Repository Ingestion & Sandboxing Limits
     MAX_REPO_ARCHIVE_SIZE_BYTES: int = int(os.getenv("MAX_REPO_ARCHIVE_SIZE_BYTES", str(50 * 1024 * 1024)))  # 50 MB
+    MAX_REPO_UNCOMPRESSED_SIZE_BYTES: int = int(os.getenv("MAX_REPO_UNCOMPRESSED_SIZE_BYTES", str(150 * 1024 * 1024)))  # 150 MB
     MAX_REPO_FILES_COUNT: int = int(os.getenv("MAX_REPO_FILES_COUNT", "1500"))
     MAX_REPO_FILE_SIZE_BYTES: int = int(os.getenv("MAX_REPO_FILE_SIZE_BYTES", str(1 * 1024 * 1024)))  # 1 MB
     REPO_DOWNLOAD_TIMEOUT_SECONDS: int = int(os.getenv("REPO_DOWNLOAD_TIMEOUT_SECONDS", "30"))
@@ -126,6 +128,24 @@ class Settings:
     CELERY_TASK_TIMEOUT_SECONDS: int = int(os.getenv("CELERY_TASK_TIMEOUT_SECONDS", "600"))
     CELERY_TASK_SOFT_TIMEOUT_SECONDS: int = int(os.getenv("CELERY_TASK_SOFT_TIMEOUT_SECONDS", "540"))
 
+    def validate_production_secrets(self) -> None:
+        """Fail fast in production when insecure development credentials or wildcards remain configured."""
+        if self.ENVIRONMENT.strip().lower() not in ("production", "prod"):
+            return
+        insecure_defaults = []
+        if "dev-insecure" in self.JWT_SECRET_KEY or len(self.JWT_SECRET_KEY) < 32:
+            insecure_defaults.append("JWT_SECRET_KEY")
+        if self.ADMIN_API_KEY == "sec-admin-phase1-production-token-9f82d1c" or len(self.ADMIN_API_KEY) < 24:
+            insecure_defaults.append("ADMIN_API_KEY")
+        if "63c78684c130bf94b3a4dde70fd55543" in self.ADMIN_PASSWORD_HASH:
+            insecure_defaults.append("ADMIN_PASSWORD_HASH")
+        if "*" in self.ALLOWED_ORIGINS:
+            insecure_defaults.append("ALLOWED_ORIGINS (wildcard not allowed)")
+        if insecure_defaults:
+            raise RuntimeError(
+                "Refusing to start in production with insecure default configuration: "
+                + ", ".join(insecure_defaults)
+            )
 
 
 settings = Settings()

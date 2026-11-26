@@ -12,6 +12,7 @@ from integrations.repository_downloader import RepositoryDownloader
 from integrations.repository_file_filter import RepositoryFileFilter
 from services.repository_analysis_service import RepositoryAnalysisService, RepositoryAnalysisResult
 from db.repositories.scan_repository import ScanRepository
+from ml_engine.classifier import vulnerability_classifier
 from core.logging_config import logger
 
 
@@ -76,36 +77,58 @@ class RepositoryScanService:
             # Combine filter skipped files with analysis skipped files
             total_skipped = skipped_files + analysis_result.skipped_files
 
-            # ML model summary
+            # ML model summary sourced dynamically from trained artifact metadata
+            ml_info = vulnerability_classifier.get_model_info()
             ml_analysis = {
-                "modelName": "SecureCode-VulnNet",
-                "version": "2.1.0-leakfree",
-                "accuracy": 77.78,
-                "macroF1": 77.78,
-                "totalDatasetSamples": 313,
+                "modelName": ml_info.get("modelName", "SecureCode-VulnNet"),
+                "version": ml_info.get("version", "2.1.0-leakfree"),
+                "accuracy": ml_info.get("accuracy", 0.0),
+                "precision": ml_info.get("precision", 0.0),
+                "recall": ml_info.get("recall", 0.0),
+                "macroF1": ml_info.get("macroF1", ml_info.get("f1Score", 0.0)),
+                "f1Score": ml_info.get("f1Score", ml_info.get("macroF1", 0.0)),
+                "totalDatasetSamples": ml_info.get("totalSamples", 0),
             }
 
-            # 6. Persist to Database
-            scan_record = self.repo.create_scan(
+            # 6. Persist to Database (update existing queued record or create if direct invocation)
+            source_summary = (
+                f"# Repository: {repository_url}\n"
+                f"# Commit: {resolved_sha}\n"
+                f"# Scanned files: {analysis_result.scanned_files_count}"
+            )
+            display_file_name = f"{project_name}@{resolved_sha[:7]} ({analysis_result.scanned_files_count} files)"
+
+            existing_scan = self.repo.get(active_scan_id)
+            if not existing_scan:
+                self.repo.create_scan(
+                    scan_id=active_scan_id,
+                    project_name=project_name,
+                    file_name=display_file_name,
+                    language="multi-language",
+                    source_code=source_summary,
+                    project_id=project_id,
+                    user_id=user_id,
+                )
+            else:
+                existing_scan.project_name = project_name
+                existing_scan.file_name = display_file_name
+                existing_scan.language = "multi-language"
+                existing_scan.source_code = source_summary
+
+            self.repo.complete_scan(
                 scan_id=active_scan_id,
-                project_name=project_name,
-                file_name=f"{project_name}@{resolved_sha[:7]} ({analysis_result.scanned_files_count} files)",
-                language="multi-language",
                 status="COMPLETED",
-                highest_severity=analysis_result.highest_severity,
                 duration_ms=analysis_result.duration_ms,
                 lines_analyzed=analysis_result.total_lines_analyzed,
+                highest_severity=analysis_result.highest_severity,
                 risk_score=int(analysis_result.risk_report.get("overallScore", 0)),
-                project_id=project_id,
-                user_id=user_id,
                 findings_count=analysis_result.findings_count,
                 ast_summary=analysis_result.ast_summary,
                 ml_analysis=ml_analysis,
-                source_code=f"# Repository: {repository_url}\n# Commit: {resolved_sha}\n# Scanned files: {analysis_result.scanned_files_count}",
             )
 
             if analysis_result.findings:
-                self.repo.create_findings(active_scan_id, analysis_result.findings)
+                self.repo.add_findings(active_scan_id, analysis_result.findings)
 
             return {
                 "id": active_scan_id,

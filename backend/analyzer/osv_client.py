@@ -6,6 +6,8 @@ API Documentation: https://osv.dev/
 
 import os
 import json
+import threading
+import tempfile
 import requests
 from typing import List, Dict, Any, Optional
 
@@ -15,9 +17,12 @@ OSV_VULN_URL = "https://api.osv.dev/v1/vulns"
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 CACHE_FILE = os.path.join(CACHE_DIR, "osv_local_cache.json")
 
+
 class OsvClient:
     def __init__(self, timeout: int = 4):
         self.timeout = timeout
+        self._lock = threading.Lock()
+        self._session = requests.Session()
         self.local_cache = self._load_cache()
 
     def _load_cache(self) -> Dict[str, Any]:
@@ -31,8 +36,15 @@ class OsvClient:
 
     def _save_cache(self):
         try:
-            with open(CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.local_cache, f, indent=2)
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            fd, tmp_path = tempfile.mkstemp(dir=CACHE_DIR, prefix="osv_cache_", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(self.local_cache, f, indent=2)
+                os.replace(tmp_path, CACHE_FILE)
+            except Exception:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
         except Exception:
             pass
 
@@ -42,8 +54,9 @@ class OsvClient:
         Supports PyPI, npm, and other open source ecosystems.
         """
         cache_key = f"{ecosystem}:{package_name}:{version or 'latest'}"
-        if cache_key in self.local_cache:
-            return self.local_cache[cache_key]
+        with self._lock:
+            if cache_key in self.local_cache:
+                return self.local_cache[cache_key]
 
         payload: Dict[str, Any] = {
             "package": {
@@ -55,7 +68,7 @@ class OsvClient:
             payload["version"] = version
 
         try:
-            response = requests.post(OSV_QUERY_URL, json=payload, timeout=self.timeout)
+            response = self._session.post(OSV_QUERY_URL, json=payload, timeout=self.timeout)
             if response.status_code == 200:
                 data = response.json()
                 vulns = data.get("vulns", [])
@@ -70,7 +83,6 @@ class OsvClient:
                     if sev_list and isinstance(sev_list, list):
                         score = sev_list[0].get("score", "")
                         if "CVSS:3" in score:
-                            # Parse CVSS score or severity
                             severity = "CRITICAL" if "AV:N" in score and "AC:L" in score else "HIGH"
 
                     formatted.append({
@@ -88,14 +100,16 @@ class OsvClient:
                         "database_specific": v.get("database_specific", {})
                     })
                 
-                self.local_cache[cache_key] = formatted
-                self._save_cache()
+                with self._lock:
+                    self.local_cache[cache_key] = formatted
+                    self._save_cache()
                 return formatted
-        except Exception as e:
+        except Exception:
             # Fallback gracefully if network times out
             pass
 
-        return self.local_cache.get(cache_key, [])
+        with self._lock:
+            return self.local_cache.get(cache_key, [])
 
     def scan_imports(self, imports: List[str], language: str = "python", versions: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         """

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getScanById, validateFix } from '../services/scanService';
+import { FindingService } from '../services/findingService';
 import type { ScanResult, VulnerabilityFinding, ValidationStatus } from '../types/scan';
 import { SeverityBadge } from '../components/common/SeverityBadge';
 import { DemoDataBanner } from '../components/common/DemoDataBanner';
@@ -157,9 +158,28 @@ ${newLines}
     }
   };
 
-  const handleApplyFixConfirmed = () => {
+  const handleApplyFixConfirmed = async () => {
     setShowApplyDialog(false);
-    toast.success('Patch applied to workspace file context.');
+    if (!currentFinding) return;
+    try {
+      await FindingService.updateFindingStatus(
+        currentFinding.id,
+        'RESOLVED',
+        currentFinding.remediationExplanation || 'Patch applied and marked resolved.'
+      );
+      setScan((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          findings: prev.findings.map((f) =>
+            f.id === currentFinding.id ? { ...f, remediationStatus: 'RESOLVED' } : f
+          ),
+        };
+      });
+      toast.success('Finding marked RESOLVED in backend & patch applied.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to persist remediation status update.');
+    }
   };
 
   if (loading) {

@@ -16,6 +16,7 @@ from typing import List, Dict, Any, Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ml_engine.feature_extractor import SecurityFeatureExtractor, FEATURE_NAMES
+from ml_engine.model_registry import ModelRegistry
 
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 VEC_PATH = os.path.join(MODEL_DIR, "vectorizer.pkl")
@@ -151,6 +152,61 @@ CWE_METADATA = {
             "https://owasp.org/Top10/A03_2021-Injection/",
             "https://cwe.mitre.org/data/definitions/79.html"
         ]
+    },
+    "CWE-95": {
+        "title": "Improper Neutralization of Directives in Dynamically Evaluated Code",
+        "category": "CODE_INJECTION",
+        "severity": "CRITICAL",
+        "owasp": "A03:2021-Injection",
+        "remediation_py": "import ast\nresult = ast.literal_eval(safe_input)",
+        "remediation_js": "const data = JSON.parse(safeInput);",
+        "explanation": "Never pass untrusted input into eval(), exec(), or Function constructors; use ast.literal_eval or JSON.parse.",
+        "best_practices": ["Replace eval/exec with ast.literal_eval or explicit dispatch maps."],
+        "references": ["https://cwe.mitre.org/data/definitions/95.html"]
+    },
+    "CWE-918": {
+        "title": "Server-Side Request Forgery (SSRF)",
+        "category": "SSRF",
+        "severity": "HIGH",
+        "owasp": "A10:2021-Server-Side Request Forgery",
+        "remediation_py": "validate_outbound_url(target_url)\nresp = requests.get(target_url, timeout=5)",
+        "remediation_js": "validateOutboundUrl(targetUrl); fetch(targetUrl);",
+        "explanation": "Enforce strict scheme, host allowlist, and private/link-local IP blocking before making outbound HTTP requests.",
+        "best_practices": ["Validate destination hostnames and resolved IPs against RFC1918 and link-local ranges."],
+        "references": ["https://cwe.mitre.org/data/definitions/918.html"]
+    },
+    "CWE-489": {
+        "title": "Active Debug Code Enabled in Production",
+        "category": "SECURITY_MISCONFIGURATION",
+        "severity": "HIGH",
+        "owasp": "A05:2021-Security Misconfiguration",
+        "remediation_py": "app.run(debug=False)",
+        "remediation_js": "app.set('env', 'production');",
+        "explanation": "Disable interactive debuggers and verbose stack traces in production builds.",
+        "best_practices": ["Configure debug=False via environment flags defaulting safely to False."],
+        "references": ["https://cwe.mitre.org/data/definitions/489.html"]
+    },
+    "CWE-377": {
+        "title": "Insecure Temporary File Creation",
+        "category": "INSECURE_TEMP_FILE",
+        "severity": "MEDIUM",
+        "owasp": "A01:2021-Broken Access Control",
+        "remediation_py": "with tempfile.NamedTemporaryFile(delete=False) as tf:\n    path = tf.name",
+        "remediation_js": "fs.mkdtempSync(path.join(os.tmpdir(), 'app-'))",
+        "explanation": "Use atomic NamedTemporaryFile or mkdtemp APIs instead of predictable mktemp filenames.",
+        "best_practices": ["Never construct predictable temporary filenames with tempfile.mktemp()."],
+        "references": ["https://cwe.mitre.org/data/definitions/377.html"]
+    },
+    "CWE-1321": {
+        "title": "Prototype Pollution via Unsafe Object Property Modification",
+        "category": "PROTOTYPE_POLLUTION",
+        "severity": "CRITICAL",
+        "owasp": "A03:2021-Injection",
+        "remediation_py": "safe_dict = dict(payload)",
+        "remediation_js": "const safeMap = Object.create(null);",
+        "explanation": "Block __proto__, constructor, and prototype keys or use null-prototype maps.",
+        "best_practices": ["Guard dynamic key assignments against '__proto__', 'constructor', and 'prototype'."],
+        "references": ["https://cwe.mitre.org/data/definitions/1321.html"]
     }
 }
 
@@ -160,19 +216,34 @@ class VulnerabilityClassifier:
         self.vuln_detector = None
         self.cwe_classifier = None
         self.metrics = {}
+        self.checksums_verified = False
         self._load_models()
 
     def _load_models(self):
+        self.checksums_verified = False
         try:
-            if os.path.exists(VEC_PATH) and os.path.exists(DET_PATH) and os.path.exists(CWE_PATH):
-                self.vectorizer = joblib.load(VEC_PATH)
-                self.vuln_detector = joblib.load(DET_PATH)
-                self.cwe_classifier = joblib.load(CWE_PATH)
             if os.path.exists(METRICS_PATH):
                 with open(METRICS_PATH, "r", encoding="utf-8") as f:
                     self.metrics = json.load(f)
+
+            if os.path.exists(VEC_PATH) and os.path.exists(DET_PATH) and os.path.exists(CWE_PATH):
+                expected = (self.metrics or {}).get("artifactChecksums", {})
+                if expected:
+                    vec_ok = ModelRegistry.compute_sha256(VEC_PATH) == expected.get("vectorizer_sha256")
+                    det_ok = ModelRegistry.compute_sha256(DET_PATH) == expected.get("vuln_detector_sha256")
+                    cwe_ok = ModelRegistry.compute_sha256(CWE_PATH) == expected.get("cwe_classifier_sha256")
+                    if not (vec_ok and det_ok and cwe_ok):
+                        raise RuntimeError("ML artifact SHA-256 checksum verification failed; refusing to load tampered pickle artifacts.")
+                    self.checksums_verified = True
+
+                self.vectorizer = joblib.load(VEC_PATH)
+                self.vuln_detector = joblib.load(DET_PATH)
+                self.cwe_classifier = joblib.load(CWE_PATH)
         except Exception as e:
             print("Error loading ML models:", e)
+            self.vectorizer = None
+            self.vuln_detector = None
+            self.cwe_classifier = None
 
     def is_ready(self) -> bool:
         return self.vectorizer is not None and self.vuln_detector is not None and self.cwe_classifier is not None
@@ -181,10 +252,15 @@ class VulnerabilityClassifier:
         if not self.metrics and os.path.exists(METRICS_PATH):
             with open(METRICS_PATH, "r", encoding="utf-8") as f:
                 self.metrics = json.load(f)
-        return self.metrics or {
+        if self.metrics:
+            info = dict(self.metrics)
+            info["checksumsVerified"] = self.checksums_verified
+            return info
+        return {
             "status": "ready" if self.is_ready() else "not_trained",
             "modelName": "SecureCode-VulnNet",
-            "version": "2.0.0"
+            "version": "2.2.0-verified",
+            "checksumsVerified": self.checksums_verified,
         }
 
     def predict_snippet(self, code_snippet: str) -> Dict[str, Any]:
@@ -224,63 +300,81 @@ class VulnerabilityClassifier:
 
     def scan_code(self, source_code: str, language: str = "python", file_name: str = "main.py") -> List[Dict[str, Any]]:
         """
-        Scans complete source code file using the trained ML model.
-        Evaluates lines and blocks with sliding context window.
+        Scans source code using batch feature extraction across non-empty code lines.
         """
         if not self.is_ready():
             return []
 
-        findings: List[Dict[str, Any]] = []
-        lines = source_code.splitlines()
-
-        for idx, line in enumerate(lines, start=1):
+        candidates = []
+        for idx, line in enumerate(source_code.splitlines(), start=1):
             trimmed = line.strip()
-            # Skip comments and empty lines
             if not trimmed or trimmed.startswith("#") or trimmed.startswith("//") or trimmed.startswith("/*"):
                 continue
-
-            # Skip lines that are too short to contain a vulnerability sink
             if len(trimmed) < 10:
                 continue
+            candidates.append((idx, trimmed))
 
-            pred = self.predict_snippet(trimmed)
-            if pred["isVulnerable"] and pred["cwe"] in CWE_METADATA:
-                cwe_info = CWE_METADATA[pred["cwe"]]
-                remed_code = cwe_info["remediation_py"] if language.lower() == "python" else cwe_info["remediation_js"]
+        if not candidates:
+            return []
 
-                findings.append({
-                    "id": f"ml-{uuid.uuid4().hex[:6]}",
-                    "title": f"[AI Model] {cwe_info['title']}",
-                    "category": cwe_info["category"],
-                    "severity": cwe_info["severity"],
-                    "cwe": pred["cwe"],
-                    "owaspCategory": cwe_info["owasp"],
-                    "file": file_name,
-                    "startLine": idx,
-                    "endLine": idx,
-                    "confidence": max(pred["confidence"], 0.88),
-                    "description": f"AI/ML Vulnerability Model detected a probable {pred['cwe']} vulnerability pattern (Confidence: {int(pred['confidence'] * 100)}%). Grounded in OSV.dev & ManageEngine security dataset.",
-                    "evidence": trimmed,
-                    "impact": f"High risk of security compromise related to {pred['cwe']}.",
-                    "dataFlow": [
-                        {
-                            "step": 1,
-                            "label": "AI Identified Sinks/Transforms",
-                            "codeSnippet": trimmed,
-                            "line": idx,
-                            "type": "SINK",
-                            "description": f"Features triggered: {', '.join(pred['activeFeatures'][:3]) if pred['activeFeatures'] else 'Trained neural pattern match'}"
-                        }
-                    ],
-                    "vulnerableCode": trimmed,
-                    "remediationCode": remed_code,
-                    "remediationExplanation": cwe_info["explanation"],
-                    "bestPractices": cwe_info["best_practices"],
-                    "references": cwe_info["references"],
-                    "remediationStatus": "OPEN",
-                    "validationStatus": "NOT_VALIDATED",
-                    "detectionSource": "ML_ENSEMBLE_OSV_MANAGEENGINE"
-                })
+        snippets = [c[1] for c in candidates]
+        X = SecurityFeatureExtractor.transform_corpus(snippets, self.vectorizer)
+        probs = self.vuln_detector.predict_proba(X)
+        vuln_probs = probs[:, 1] if probs.shape[1] > 1 else probs[:, 0]
+
+        positive_indices = [i for i, p in enumerate(vuln_probs) if float(p) >= 0.50]
+        if not positive_indices:
+            return []
+
+        X_pos = X[positive_indices]
+        cwe_preds = self.cwe_classifier.predict(X_pos)
+
+        findings: List[Dict[str, Any]] = []
+        for pos_rank, cand_idx in enumerate(positive_indices):
+            idx, trimmed = candidates[cand_idx]
+            prob_val = round(float(vuln_probs[cand_idx]), 3)
+            cwe = str(cwe_preds[pos_rank])
+            if cwe not in CWE_METADATA:
+                continue
+
+            struct_feats = SecurityFeatureExtractor.extract_structural_features(trimmed)
+            active_features = [FEATURE_NAMES[i] for i, val in enumerate(struct_feats) if val > 0]
+            cwe_info = CWE_METADATA[cwe]
+            remed_code = cwe_info["remediation_py"] if language.lower() == "python" else cwe_info["remediation_js"]
+
+            findings.append({
+                "id": f"ml-{uuid.uuid4().hex[:6]}",
+                "title": f"[AI Model] {cwe_info['title']}",
+                "category": cwe_info["category"],
+                "severity": cwe_info["severity"],
+                "cwe": cwe,
+                "owaspCategory": cwe_info["owasp"],
+                "file": file_name,
+                "startLine": idx,
+                "endLine": idx,
+                "confidence": prob_val,
+                "description": f"AI/ML Vulnerability Model detected a probable {cwe} vulnerability pattern (Confidence: {int(prob_val * 100)}%). Grounded in OSV.dev & ManageEngine security dataset.",
+                "evidence": trimmed,
+                "impact": f"High risk of security compromise related to {cwe}.",
+                "dataFlow": [
+                    {
+                        "step": 1,
+                        "label": "AI Identified Sinks/Transforms",
+                        "codeSnippet": trimmed,
+                        "line": idx,
+                        "type": "SINK",
+                        "description": f"Features triggered: {', '.join(active_features[:3]) if active_features else 'TF-IDF statistical pattern match'}"
+                    }
+                ],
+                "vulnerableCode": trimmed,
+                "remediationCode": remed_code,
+                "remediationExplanation": cwe_info["explanation"],
+                "bestPractices": cwe_info["best_practices"],
+                "references": cwe_info["references"],
+                "remediationStatus": "OPEN",
+                "validationStatus": "NOT_VALIDATED",
+                "detectionSource": "ML_ENSEMBLE_OSV_MANAGEENGINE"
+            })
 
         return findings
 

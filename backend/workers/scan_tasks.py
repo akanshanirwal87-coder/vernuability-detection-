@@ -7,6 +7,7 @@ from workers.celery_app import celery_app
 from db.database import SessionLocal
 from db.models import Scan, ScanJob
 from services.repository_scan_service import RepositoryScanService
+from core.security import decrypt_secret
 from core.logging_config import logger
 
 
@@ -39,7 +40,9 @@ def scan_repository_task(
             scan.status = "RUNNING"
             db.commit()
 
-        # Progress tracking callback
+        # Progress tracking callback (throttled DB commits to avoid write amplification)
+        last_committed_pct = [-1]
+
         def progress_callback(processed: int, total: int, findings_found: int):
             pct = 10 + int((processed / max(1, total)) * 80)
             self.update_state(
@@ -51,16 +54,18 @@ def scan_repository_task(
                     "progress": pct,
                 }
             )
-            # Update database periodically
-            try:
-                j = db.query(ScanJob).filter(ScanJob.id == job_id).first()
-                if j:
-                    j.progress = pct
-                    db.commit()
-            except Exception:
-                db.rollback()
+            if pct - last_committed_pct[0] >= 10 or processed == total:
+                last_committed_pct[0] = pct
+                try:
+                    j = db.query(ScanJob).filter(ScanJob.id == job_id).first()
+                    if j:
+                        j.progress = pct
+                        db.commit()
+                except Exception:
+                    db.rollback()
 
-        scanner = RepositoryScanService(db=db, github_token=github_token)
+        plain_token = decrypt_secret(github_token)
+        scanner = RepositoryScanService(db=db, github_token=plain_token)
         result = scanner.execute_repository_scan(
             repository_url=repository_url,
             branch=branch,
@@ -116,16 +121,16 @@ def scan_repository_task(
 
 
 def _record_job_failure(db, job_id: str, scan_id: str, error_message: str) -> None:
-    """Safely records failure states in database."""
+    """Safely records failure states in database without overwriting CANCELLED jobs."""
     try:
         job = db.query(ScanJob).filter(ScanJob.id == job_id).first()
-        if job:
+        if job and job.status != "CANCELLED":
             job.status = "FAILED"
-            job.error_message = error_message
+            job.error_message = error_message[:500]
             db.commit()
 
         scan = db.query(Scan).filter(Scan.id == scan_id).first()
-        if scan:
+        if scan and scan.status != "CANCELLED":
             scan.status = "FAILED"
             db.commit()
     except Exception as e:

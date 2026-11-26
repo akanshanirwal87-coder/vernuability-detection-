@@ -597,7 +597,7 @@ export const NewScanPage: React.FC = () => {
                   </div>
                 )}
               </div>
-            ) : (
+            ) : inputTab === 'multi-file' ? (
               /* Tab 3: Multi-File Project Batch Area */
               <div className="h-[460px] flex flex-col bg-[#0B1020]">
                 {/* Project Preset Selector Header */}
@@ -685,7 +685,7 @@ export const NewScanPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
             {/* Tab 4: GitHub Repository Asynchronous Scan */}
             {inputTab === 'github' && (

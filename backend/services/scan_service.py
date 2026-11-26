@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 
-from core.exceptions import EntityNotFoundException, AuthorizationException
+from core.exceptions import EntityNotFoundException, AuthorizationException, ValidationException
 from db.models import Scan, Finding, ScanJob
 from db.repositories.scan_repository import ScanRepository
+from db.repositories.project_repository import ProjectRepository
 from analyzer.python_ast_scanner import PythonAstScanner
 from analyzer.javascript_scanner import JavaScriptScanner
 from analyzer.dependency_parser import DependencyParser
@@ -60,6 +61,13 @@ class ScanService:
         scan_id = f"scan-{uuid.uuid4().hex[:8]}"
         lines_analyzed = len(source_code.splitlines())
 
+        if project_id:
+            project = ProjectRepository(self.db).get(project_id)
+            if not project:
+                raise EntityNotFoundException("Project", project_id)
+            if user_id and project.user_id != user_id:
+                raise AuthorizationException("Access denied: You do not own the specified project.")
+
         # Check if file is a dependency manifest
         is_manifest = DependencyParser.is_manifest_file(file_name) or language.lower() in ("manifest", "requirements", "toml", "lockfile")
 
@@ -89,7 +97,7 @@ class ScanService:
                 me_rules = manageengine_client.check_code_against_rules(source_code, language)
                 me_triggered = me_rules
         else:
-            raise ValueError(f"Unsupported language: {language}")
+            raise ValidationException(f"Unsupported language: {language}")
 
         # Tag detection source and scanId
         for f in findings:
@@ -107,9 +115,12 @@ class ScanService:
         ml_analysis = {
             "modelName": ml_info.get("modelName", "SecureCode-VulnNet"),
             "version": ml_info.get("version", "2.1.0-leakfree"),
-            "accuracy": ml_info.get("accuracy", 77.78),
-            "macroF1": ml_info.get("macroF1", 77.78),
-            "totalDatasetSamples": ml_info.get("totalSamples", 313),
+            "accuracy": ml_info.get("accuracy", 0.0),
+            "precision": ml_info.get("precision", 0.0),
+            "recall": ml_info.get("recall", 0.0),
+            "macroF1": ml_info.get("macroF1", ml_info.get("f1Score", 0.0)),
+            "f1Score": ml_info.get("f1Score", ml_info.get("macroF1", 0.0)),
+            "totalDatasetSamples": ml_info.get("totalSamples", 0),
         }
 
         # Persist Scan to Database
@@ -198,16 +209,16 @@ class ScanService:
         if not scan:
             raise EntityNotFoundException("Scan", scan_id)
 
-        # Enforce user isolation if user is set on scan
-        if scan.user_id and user_id and not is_admin and scan.user_id != user_id:
+        # Enforce user isolation
+        if not is_admin and (not user_id or not scan.user_id or scan.user_id != user_id):
             raise AuthorizationException("Access denied: You do not have permission to view this scan.")
 
         counts = json.loads(scan.findings_count_json) if scan.findings_count_json else {}
         ast_sum = json.loads(scan.ast_summary_json) if scan.ast_summary_json else {}
         ml_an = json.loads(scan.ml_analysis_json) if scan.ml_analysis_json else {}
 
-        # Fetch findings
-        findings_objs, _ = self.repo.get_findings_paginated(scan_id, limit=200)
+        # Fetch all findings for this scan without silent 200-item truncation
+        findings_objs, _ = self.repo.get_findings_paginated(scan_id, limit=10000)
         findings = []
         for f in findings_objs:
             findings.append({
@@ -261,7 +272,7 @@ class ScanService:
         if not scan:
             raise EntityNotFoundException("Scan", scan_id)
 
-        if scan.user_id and user_id and not is_admin and scan.user_id != user_id:
+        if not is_admin and (not user_id or not scan.user_id or scan.user_id != user_id):
             raise AuthorizationException("Access denied: You cannot delete this scan.")
 
         self.repo.delete(scan)

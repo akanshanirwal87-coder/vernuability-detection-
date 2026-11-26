@@ -4,7 +4,7 @@ from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
 from db.database import get_db
-from core.permissions import get_current_user_optional, check_rate_limit
+from core.permissions import get_current_user, check_rate_limit
 from schemas.common import ApiResponse
 from integrations.repository_validator import RepositoryValidator, RepositoryValidationError
 from integrations.github_webhooks import GitHubWebhookHandler
@@ -29,7 +29,7 @@ class GitHubScanRequest(BaseModel):
 @router.post("/scan", response_model=ApiResponse[Dict[str, Any]], status_code=status.HTTP_202_ACCEPTED)
 def enqueue_repository_scan(
     req: GitHubScanRequest,
-    current_user: Optional[dict] = Depends(get_current_user_optional),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
     _=Depends(check_rate_limit),
 ):
@@ -39,7 +39,7 @@ def enqueue_repository_scan(
     except RepositoryValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    user_id = current_user.get("id") if current_user else None
+    user_id = current_user["id"]
     queue_service = ScanQueueService(db)
 
     result = queue_service.enqueue_repository_scan(
@@ -62,11 +62,13 @@ def enqueue_repository_scan(
 @router.get("/jobs/{job_id}", response_model=ApiResponse[Dict[str, Any]])
 def get_job_status(
     job_id: str,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Retrieve real-time execution status, file progress, and discovered findings for a scan job."""
     status_service = ScanStatusService(db)
-    job_status = status_service.get_status(job_id)
+    is_admin = current_user.get("role") == "ADMIN"
+    job_status = status_service.get_status(job_id, user_id=current_user["id"], is_admin=is_admin)
 
     return ApiResponse(
         success=True,
@@ -78,11 +80,13 @@ def get_job_status(
 @router.post("/jobs/{job_id}/cancel", response_model=ApiResponse[Dict[str, Any]])
 def cancel_scan_job(
     job_id: str,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Cancel an active or queued background scan job."""
     status_service = ScanStatusService(db)
-    result = status_service.cancel_job(job_id)
+    is_admin = current_user.get("role") == "ADMIN"
+    result = status_service.cancel_job(job_id, user_id=current_user["id"], is_admin=is_admin)
 
     return ApiResponse(
         success=True,
@@ -94,7 +98,9 @@ def cancel_scan_job(
 @router.get("/repo-info", response_model=ApiResponse[Dict[str, Any]])
 def get_repository_info(
     url: str = Query(..., description="GitHub repository HTTPS URL"),
-    token: Optional[str] = Query(None, description="Optional GitHub access token for private repos"),
+    x_github_token: Optional[str] = Header(None, alias="X-GitHub-Token", description="Optional GitHub access token for private repos"),
+    current_user: dict = Depends(get_current_user),
+    _=Depends(check_rate_limit),
 ):
     """Inspect and validate repository accessibility, default branch, and visibility."""
     try:
@@ -102,7 +108,7 @@ def get_repository_info(
     except RepositoryValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    client = GitHubClient(token=token)
+    client = GitHubClient(token=x_github_token)
     repo_service = GitHubRepositoryService(client)
 
     try:
@@ -114,8 +120,8 @@ def get_repository_info(
             message="Repository metadata resolved successfully.",
             data=details,
         )
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Could not access GitHub repository: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=404, detail="Could not access GitHub repository or insufficient permissions.")
 
 
 @router.post("/webhook", status_code=status.HTTP_200_OK)

@@ -78,10 +78,10 @@ class RiskAssessment:
             )
 
         # Scale score using non-linear asymptotic saturation:
-        # Score = 100 * (1 - e^(-raw_score / 45))
-        # This guarantees 0 <= score <= 100 smoothly.
+        # Score = 100 * (1 - e^(-raw_score / 30))
+        # Guarantees 0 <= score <= 100 while scoring confirmed CRITICAL sinks >= 60.
         import math
-        normalized_score = min(100.0, max(0.0, 100.0 * (1.0 - math.exp(-raw_score / 45.0))))
+        normalized_score = min(100.0, max(0.0, 100.0 * (1.0 - math.exp(-raw_score / 30.0))))
 
         # Determine qualitative level
         if breakdown["CRITICAL"] > 0 or normalized_score >= 80.0:

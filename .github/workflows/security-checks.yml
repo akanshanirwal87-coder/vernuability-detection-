@@ -29,12 +29,12 @@ jobs:
 
       - name: Run Bandit AST SAST on Backend
         run: |
-          bandit -r backend/ -ll -ii -x backend/tests/ -f json -o bandit-report.json || true
+          bandit -r backend/ -ll -ii -x backend/tests/ -f json -o bandit-report.json
           bandit -r backend/ -ll -ii -x backend/tests/
 
       - name: Run Pip Audit on Dependencies
         run: |
-          pip-audit -r backend/requirements.txt || true
+          pip-audit -r backend/requirements.txt
 
   npm-security:
     name: Frontend Dependency Audit
@@ -54,4 +54,4 @@ jobs:
           node-version: "20"
 
       - name: Run npm audit
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high

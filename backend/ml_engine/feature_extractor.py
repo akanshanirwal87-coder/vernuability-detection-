@@ -26,7 +26,12 @@ FEATURE_NAMES = [
     "has_hardcoded_secret",
     "has_env_secret_retrieval",
     "has_osv_package_pattern",
-    "has_manageengine_endpoint_rule"
+    "has_manageengine_endpoint_rule",
+    "has_dynamic_code_eval",
+    "has_ssrf_network_sink",
+    "has_debug_mode_flag",
+    "has_insecure_tempfile",
+    "has_prototype_pollution",
 ]
 
 def code_tokenizer(text: str) -> List[str]:
@@ -45,7 +50,8 @@ class SecurityFeatureExtractor:
         c = code.lower()
 
         # 1. Dynamic string interpolation / concatenation
-        dynamic_concat = 1.0 if ('+' in code or 'f"' in code or "f'" in code or '${' in code or '.format(' in code or '% ' in code) else 0.0
+        has_str_concat = bool(re.search(r'["\']\s*\+|\+\s*["\']', code))
+        dynamic_concat = 1.0 if (has_str_concat or 'f"' in code or "f'" in code or '${' in code or '.format(' in code or re.search(r'%\s*[(\w]', code)) else 0.0
 
         # 2. SQL Query keywords
         sql_kw = 1.0 if any(k in c for k in ['select ', 'insert into', 'update ', 'delete from', 'drop table']) else 0.0
@@ -54,46 +60,61 @@ class SecurityFeatureExtractor:
         param_query = 1.0 if ('?' in code or '%s' in code or '$1' in code or ':id' in c or ':email' in c or 'execute(query, (' in c) else 0.0
 
         # 4. Shell execution sinks
-        shell_sink = 1.0 if ('shell=true' in c or 'os.system(' in c or 'child_process.exec(' in c or 'os.popen(' in c or 'subprocess.call(' in c) else 0.0
+        shell_sink = 1.0 if ('shell=true' in c or 'os.system(' in c or 'child_process.exec(' in c or 'os.popen(' in c or ('subprocess.call(' in c and 'shell=false' not in c)) else 0.0
 
         # 5. Safe process execution
         safe_proc = 1.0 if ('shell=false' in c or 'subprocess.run([' in c or 'execfile' in c or 'check_output([' in c) else 0.0
 
         # 6. Unsafe deserialization
-        unsafe_deser = 1.0 if ('pickle.loads' in c or 'yaml.load(' in c or 'cpickle' in c or 'marshal.loads' in c or 'node_serialize' in c) else 0.0
+        unsafe_deser = 1.0 if ('pickle.loads' in c or 'yaml.load(' in c or 'cpickle' in c or 'marshal.loads' in c or 'node_serialize' in c or 'unserialize(' in c) else 0.0
 
         # 7. Safe deserialization
         safe_deser = 1.0 if ('json.loads' in c or 'yaml.safe_load' in c or 'literal_eval' in c or 'json.parse' in c) else 0.0
 
         # 8. Insecure crypto
-        insec_crypto = 1.0 if ('md5(' in c or 'sha1(' in c or 'des.new' in c or 'arc4' in c or 'blowfish' in c) else 0.0
+        insec_crypto = 1.0 if ('md5(' in c or 'sha1(' in c or 'des.new' in c or 'arc4' in c or 'blowfish' in c or "createhash('md5')" in c or 'createhash("md5")' in c or "createhash('sha1')" in c) else 0.0
 
         # 9. Secure crypto
-        sec_crypto = 1.0 if ('sha256(' in c or 'sha512(' in c or 'aesgcm' in c or 'bcrypt' in c or 'argon2' in c) else 0.0
+        sec_crypto = 1.0 if ('sha256(' in c or 'sha512(' in c or 'aesgcm' in c or 'bcrypt' in c or 'argon2' in c or "createhash('sha256')" in c or 'createhash("sha256")' in c) else 0.0
 
         # 10. DOM XSS sink
-        dom_xss = 1.0 if ('innerhtml' in c or 'document.write' in c or 'outerhtml' in c or '.html(' in c) else 0.0
+        dom_xss = 1.0 if ('innerhtml' in c or 'document.write' in c or 'outerhtml' in c or '.html(' in c or 'dangerouslysetinnerhtml' in c) else 0.0
 
         # 11. Safe DOM text
-        safe_dom = 1.0 if ('textcontent' in c or 'innertext' in c or '.text(' in c or 'createelement' in c) else 0.0
+        safe_dom = 1.0 if ('textcontent' in c or 'innertext' in c or '.text(' in c or 'createelement' in c or 'escape(' in c) else 0.0
 
         # 12. Path traversal sink
-        path_sink = 1.0 if (('open(' in c or 'readfilesync' in c or 'send_file' in c or 'createreadstream' in c) and ('basename' not in c and 'abspath' not in c)) else 0.0
+        path_sink = 1.0 if (('open(' in c or 'readfilesync' in c or 'send_file' in c or 'createreadstream' in c) and ('basename' not in c and 'abspath' not in c and 'realpath' not in c and 'resolve(' not in c)) else 0.0
 
         # 13. Path containment guard
-        path_guard = 1.0 if ('basename(' in c or 'abspath(' in c or 'resolve(' in c or 'secure_filename' in c or 'startswith(base' in c) else 0.0
+        path_guard = 1.0 if ('basename(' in c or 'abspath(' in c or 'realpath(' in c or 'resolve(' in c or 'secure_filename' in c or 'startswith(base' in c) else 0.0
 
         # 14. Hardcoded Secret pattern
-        secret_match = 1.0 if re.search(r'(?:api_key|token|secret|password|bearer|auth)\s*=\s*[\'"][^\'"]{8,}[\'"]', code, re.IGNORECASE) else 0.0
+        secret_match = 1.0 if re.search(r'(?:api_key|apikey|token|secret|password|passwd|bearer|auth|private_key)\s*[:=]\s*[\'"][^\'"]{8,}[\'"]', code, re.IGNORECASE) else 0.0
 
         # 15. Environment variable secret retrieval
-        env_secret = 1.0 if ('os.getenv' in c or 'os.environ.get' in c or 'process.env' in c) else 0.0
+        env_secret = 1.0 if ('os.getenv' in c or 'os.environ' in c or 'process.env' in c) else 0.0
 
         # 16. OSV vulnerable component pattern
         osv_pattern = 1.0 if any(p in c for p in ['requests.', 'urllib3.', 'lodash.', 'py.path', 'sql-template']) else 0.0
 
         # 17. ManageEngine endpoint baseline violation
         me_pattern = 1.0 if any(p in c for p in ['agent_payload', 'service_manager.exe', 'endpoint_devices', 'agent_auth_token']) else 0.0
+
+        # 18. Dynamic code evaluation sink
+        eval_sink = 1.0 if ('eval(' in c or 'exec(' in c or 'new function(' in c or 'vm.runincontext' in c) and ('literal_eval' not in c) else 0.0
+
+        # 19. SSRF / unvalidated outbound HTTP fetch
+        ssrf_sink = 1.0 if (('requests.get(' in c or 'requests.post(' in c or 'urllib.request.urlopen(' in c or 'httpx.get(' in c or 'fetch(' in c) and ('validate_url' not in c and 'allowed' not in c)) else 0.0
+
+        # 20. Debug mode enabled
+        debug_flag = 1.0 if ('debug=true' in c or 'debug = true' in c) else 0.0
+
+        # 21. Insecure temp file API
+        insecure_tmp = 1.0 if ('tempfile.mktemp' in c) else 0.0
+
+        # 22. Prototype pollution pattern
+        proto_poll = 1.0 if ('__proto__' in c or 'constructor.prototype' in c or "['prototype']" in c) else 0.0
 
         return [
             dynamic_concat,
@@ -112,7 +133,12 @@ class SecurityFeatureExtractor:
             secret_match,
             env_secret,
             osv_pattern,
-            me_pattern
+            me_pattern,
+            eval_sink,
+            ssrf_sink,
+            debug_flag,
+            insecure_tmp,
+            proto_poll,
         ]
 
     @staticmethod

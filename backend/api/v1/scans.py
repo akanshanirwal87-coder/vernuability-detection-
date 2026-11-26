@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPExcep
 from sqlalchemy.orm import Session
 
 from db.database import get_db
-from core.permissions import get_current_user_optional, get_current_user, check_rate_limit
+from core.config import settings
+from core.permissions import get_current_user, check_rate_limit
 from core.security import validate_upload
 from schemas.common import ApiResponse, PaginatedData, PaginationMeta
 from schemas.scan import (
@@ -23,13 +24,13 @@ router = APIRouter(prefix="/scans", tags=["Scan & Vulnerability Analysis"])
 @router.post("", response_model=ApiResponse[Dict[str, Any]], status_code=status.HTTP_201_CREATED)
 def create_scan(
     req: ScanCreate,
-    current_user: Optional[dict] = Depends(get_current_user_optional),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
     _=Depends(check_rate_limit),
 ):
     """Initiate a static, AI/ML, and SCA vulnerability scan on submitted code."""
     service = ScanService(db)
-    user_id = current_user.get("id") if current_user else None
+    user_id = current_user["id"]
 
     result = service.execute_scan(
         source_code=req.sourceCode,
@@ -55,12 +56,27 @@ async def upload_file_scan(
     language: str = Form("python"),
     projectId: Optional[str] = Form(None),
     file: UploadFile = File(...),
-    current_user: Optional[dict] = Depends(get_current_user_optional),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
     _=Depends(check_rate_limit),
 ):
     """Upload and statically scan a source file with strict path traversal & size validation."""
-    content = await file.read()
+    max_bytes = settings.MAX_UPLOAD_SIZE_BYTES
+    chunks = []
+    total_read = 0
+    while True:
+        chunk = await file.read(65536)
+        if not chunk:
+            break
+        total_read += len(chunk)
+        if total_read > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File size exceeds the maximum allowed limit ({max_bytes} bytes).",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
+
     try:
         safe_name = validate_upload(file.filename or "", content)
     except ValueError as e:
@@ -68,7 +84,7 @@ async def upload_file_scan(
 
     source_code = content.decode("utf-8")
     service = ScanService(db)
-    user_id = current_user.get("id") if current_user else None
+    user_id = current_user["id"]
 
     result = service.execute_scan(
         source_code=source_code,
@@ -92,13 +108,13 @@ def list_scans(
     scanStatus: Optional[str] = Query(None, alias="status"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    current_user: Optional[dict] = Depends(get_current_user_optional),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Retrieve historical scan audit records with optional project filtering and pagination."""
     service = ScanService(db)
-    is_admin = current_user.get("role") == "ADMIN" if current_user else False
-    user_id = None if is_admin else (current_user.get("id") if current_user else None)
+    is_admin = current_user.get("role") == "ADMIN"
+    user_id = None if is_admin else current_user["id"]
 
     scans, total = service.list(
         user_id=user_id,
@@ -126,13 +142,13 @@ def list_scans(
 @router.get("/{scan_id}", response_model=ApiResponse[Dict[str, Any]])
 def get_scan(
     scan_id: str,
-    current_user: Optional[dict] = Depends(get_current_user_optional),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Retrieve complete scan report, findings count, AST summary, and AI metadata."""
     service = ScanService(db)
-    is_admin = current_user.get("role") == "ADMIN" if current_user else False
-    user_id = current_user.get("id") if current_user else None
+    is_admin = current_user.get("role") == "ADMIN"
+    user_id = current_user["id"]
 
     scan_data = service.get_by_id(scan_id=scan_id, user_id=user_id, is_admin=is_admin)
     return ApiResponse(
@@ -149,13 +165,13 @@ def get_scan_findings(
     cwe: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    current_user: Optional[dict] = Depends(get_current_user_optional),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Retrieve detailed vulnerability findings for a specific scan with pagination & filters."""
     service = FindingService(db)
-    is_admin = current_user.get("role") == "ADMIN" if current_user else False
-    user_id = current_user.get("id") if current_user else None
+    is_admin = current_user.get("role") == "ADMIN"
+    user_id = current_user["id"]
 
     findings, total = service.list_findings(
         scan_id=scan_id,
@@ -186,13 +202,13 @@ def get_scan_findings(
 def validate_fix(
     scan_id: str,
     req: FixValidationRequest,
-    current_user: Optional[dict] = Depends(get_current_user_optional),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Recompile proposed remediation in AST sandbox to verify elimination of target sink."""
     service = RemediationService(db)
-    is_admin = current_user.get("role") == "ADMIN" if current_user else False
-    user_id = current_user.get("id") if current_user else None
+    is_admin = current_user.get("role") == "ADMIN"
+    user_id = current_user["id"]
 
     res = service.validate_code_fix(
         scan_id=scan_id,
@@ -212,13 +228,13 @@ def validate_fix(
 @router.delete("/{scan_id}", response_model=ApiResponse[dict])
 def delete_scan(
     scan_id: str,
-    current_user: Optional[dict] = Depends(get_current_user_optional),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Delete a scan record and its associated findings."""
     service = ScanService(db)
-    is_admin = current_user.get("role") == "ADMIN" if current_user else False
-    user_id = current_user.get("id") if current_user else None
+    is_admin = current_user.get("role") == "ADMIN"
+    user_id = current_user["id"]
 
     service.delete(scan_id=scan_id, user_id=user_id, is_admin=is_admin)
     return ApiResponse(

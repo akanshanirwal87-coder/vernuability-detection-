@@ -1,5 +1,5 @@
 import os
-import io
+import stat
 import shutil
 import zipfile
 import tempfile
@@ -28,54 +28,105 @@ class RepositoryDownloader:
         destination_dir: Optional[str] = None
     ) -> Tuple[str, str]:
         """
-        Download zipball from GitHub API, stream with size limits, and extract safely.
+        Download zipball from GitHub API, stream with size & zip-bomb limits, and extract safely.
         Returns: (extracted_root_directory, resolved_commit_sha)
         """
-        dest_root = destination_dir or tempfile.mkdtemp(prefix="securecode_repo_")
+        base_tmp = settings.TEMP_DIR_ROOT or None
+        dest_root = destination_dir or tempfile.mkdtemp(prefix="securecode_repo_", dir=base_tmp)
+        resp = None
 
         try:
             resp = self.client.download_zipball_stream(owner, repo, ref)
             content_length = resp.headers.get("Content-Length")
-            if content_length and int(content_length) > settings.MAX_REPO_ARCHIVE_SIZE_BYTES:
-                raise RepositoryDownloaderError(
-                    f"Repository archive size ({content_length} bytes) exceeds maximum allowed ({settings.MAX_REPO_ARCHIVE_SIZE_BYTES} bytes)."
-                )
-
-            # Stream download with byte counter to protect against uncompressed/chunked zip bombs
-            downloaded_bytes = 0
-            buffer = io.BytesIO()
-
-            for chunk in resp.iter_content(chunk_size=65536):
-                if chunk:
-                    downloaded_bytes += len(chunk)
-                    if downloaded_bytes > settings.MAX_REPO_ARCHIVE_SIZE_BYTES:
+            if content_length:
+                try:
+                    if int(content_length) > settings.MAX_REPO_ARCHIVE_SIZE_BYTES:
                         raise RepositoryDownloaderError(
-                            f"Download exceeded archive size limit of {settings.MAX_REPO_ARCHIVE_SIZE_BYTES} bytes."
+                            f"Repository archive size ({content_length} bytes) exceeds maximum allowed ({settings.MAX_REPO_ARCHIVE_SIZE_BYTES} bytes)."
                         )
-                    buffer.write(chunk)
+                except ValueError:
+                    pass
 
-            buffer.seek(0)
+            # Stream download to a spooled temp file to avoid unbounded RAM growth
+            downloaded_bytes = 0
+            max_archive = settings.MAX_REPO_ARCHIVE_SIZE_BYTES
+            max_uncompressed = settings.MAX_REPO_UNCOMPRESSED_SIZE_BYTES
+            max_entries = max(settings.MAX_REPO_FILES_COUNT * 4, 2000)
 
-            # Extract zip safely with Zip Slip / Path Traversal prevention
-            try:
-                with zipfile.ZipFile(buffer) as zf:
-                    cls_dir = os.path.realpath(dest_root)
-
-                    # Extract all members verifying canonical containment
-                    for member in zf.infolist():
-                        # Prevent extraction of symlinks or devices
-                        target_path = os.path.realpath(os.path.join(dest_root, member.filename))
-
-                        # Ensure target path starts with dest_root directory
-                        if not target_path.startswith(cls_dir + os.sep) and target_path != cls_dir:
+            with tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024) as archive_tmp:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        downloaded_bytes += len(chunk)
+                        if downloaded_bytes > max_archive:
                             raise RepositoryDownloaderError(
-                                f"Zip Slip detected! Member '{member.filename}' extracts outside destination directory."
+                                f"Download exceeded archive size limit of {max_archive} bytes."
+                            )
+                        archive_tmp.write(chunk)
+
+                archive_tmp.seek(0)
+
+                # Extract zip safely with Zip Slip, Symlink, and Zip Bomb prevention
+                try:
+                    with zipfile.ZipFile(archive_tmp) as zf:
+                        cls_dir = os.path.realpath(dest_root)
+                        members = zf.infolist()
+                        if len(members) > max_entries:
+                            raise RepositoryDownloaderError(
+                                f"Archive contains {len(members)} entries, exceeding safe limit ({max_entries})."
                             )
 
-                        zf.extract(member, dest_root)
+                        declared_total = 0
+                        actual_total = 0
 
-            except zipfile.BadZipFile as e:
-                raise RepositoryDownloaderError(f"Corrupt or invalid zip archive from GitHub: {str(e)}")
+                        for member in members:
+                            # Reject symlinks, FIFOs, character/block devices, sockets
+                            unix_mode = member.external_attr >> 16
+                            if unix_mode and (
+                                stat.S_ISLNK(unix_mode)
+                                or stat.S_ISFIFO(unix_mode)
+                                or stat.S_ISCHR(unix_mode)
+                                or stat.S_ISBLK(unix_mode)
+                                or stat.S_ISSOCK(unix_mode)
+                            ):
+                                raise RepositoryDownloaderError(
+                                    f"Unsupported or unsafe file type in archive member '{member.filename}'."
+                                )
+
+                            if member.file_size < 0:
+                                raise RepositoryDownloaderError(f"Invalid archive member size for '{member.filename}'.")
+
+                            declared_total += member.file_size
+                            if declared_total > max_uncompressed:
+                                raise RepositoryDownloaderError(
+                                    f"Archive uncompressed size exceeds safe limit of {max_uncompressed} bytes."
+                                )
+
+                            target_path = os.path.realpath(os.path.join(dest_root, member.filename))
+                            if not target_path.startswith(cls_dir + os.sep) and target_path != cls_dir:
+                                raise RepositoryDownloaderError(
+                                    f"Zip Slip detected! Member '{member.filename}' extracts outside destination directory."
+                                )
+
+                            if member.is_dir():
+                                os.makedirs(target_path, exist_ok=True)
+                                continue
+
+                            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                            # Stream extract and enforce actual uncompressed byte cap (anti zip-bomb)
+                            with zf.open(member, "r") as src, open(target_path, "wb") as dst:
+                                while True:
+                                    buf = src.read(65536)
+                                    if not buf:
+                                        break
+                                    actual_total += len(buf)
+                                    if actual_total > max_uncompressed:
+                                        raise RepositoryDownloaderError(
+                                            f"Extracted archive content exceeded safe limit of {max_uncompressed} bytes."
+                                        )
+                                    dst.write(buf)
+
+                except zipfile.BadZipFile as e:
+                    raise RepositoryDownloaderError(f"Corrupt or invalid zip archive from GitHub: {str(e)}")
 
             # GitHub zipballs create a single root directory: owner-repo-sha/
             extracted_subdirs = [
@@ -95,11 +146,16 @@ class RepositoryDownloader:
             return repo_root, commit_sha
 
         except Exception as e:
-            # Clean up on failure
             self.cleanup(dest_root)
             if isinstance(e, RepositoryDownloaderError):
                 raise
             raise RepositoryDownloaderError(f"Failed to acquire repository content: {str(e)}")
+        finally:
+            if resp is not None and hasattr(resp, "close"):
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
     @staticmethod
     def cleanup(dir_path: str) -> None:

@@ -16,6 +16,8 @@ celery_app.conf.update(
     enable_utc=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    worker_max_tasks_per_child=50,
+    task_track_started=True,
     task_time_limit=settings.CELERY_TASK_TIMEOUT_SECONDS,
     task_soft_time_limit=settings.CELERY_TASK_SOFT_TIMEOUT_SECONDS,
     result_expires=3600,
@@ -24,4 +26,10 @@ celery_app.conf.update(
         "workers.scan_tasks",
         "workers.cleanup_tasks",
     ],
+    beat_schedule={
+        "cleanup-stale-repo-dirs": {
+            "task": "cleanup_stale_directories_task",
+            "schedule": 1800.0,
+        },
+    },
 )

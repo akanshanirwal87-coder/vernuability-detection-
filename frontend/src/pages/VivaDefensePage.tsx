@@ -23,8 +23,8 @@ import {
   Copy,
   Check
 } from 'lucide-react';
-import { runAcademicBenchmark, calculateCvss, getVivaBank } from '../services/scanService';
-import type { BenchmarkRunResponse, CvssCalculationRequest, CvssCalculationResponse, VivaBankResponse } from '../types/scan';
+import { runAcademicBenchmark, calculateCvss, getVivaBank, getMlModelInfo } from '../services/scanService';
+import type { BenchmarkRunResponse, CvssCalculationRequest, CvssCalculationResponse, VivaBankResponse, ModelMetricsResponse } from '../types/scan';
 import { toast } from 'sonner';
 
 export const VivaDefensePage: React.FC = () => {
@@ -34,8 +34,9 @@ export const VivaDefensePage: React.FC = () => {
   const [benchmarkLoading, setBenchmarkLoading] = useState<boolean>(false);
   const [benchmarkData, setBenchmarkData] = useState<BenchmarkRunResponse | null>(null);
 
-  // Viva bank state
+  // Viva bank & live ML metadata state
   const [vivaData, setVivaData] = useState<VivaBankResponse | null>(null);
+  const [modelInfo, setModelInfo] = useState<ModelMetricsResponse | null>(null);
   const [expandedQuestion, setExpandedQuestion] = useState<string>('q1');
 
   // Presentation Deck state
@@ -61,12 +62,14 @@ export const VivaDefensePage: React.FC = () => {
 
   const loadInitialData = async () => {
     try {
-      const [viva, cvss] = await Promise.all([
+      const [viva, cvss, ml] = await Promise.all([
         getVivaBank(),
-        calculateCvss(cvssRequest)
+        calculateCvss(cvssRequest),
+        getMlModelInfo().catch(() => null),
       ]);
       setVivaData(viva);
       setCvssResult(cvss);
+      if (ml) setModelInfo(ml);
     } catch (e) {
       console.warn('Initial viva load error', e);
     }
@@ -74,13 +77,15 @@ export const VivaDefensePage: React.FC = () => {
 
   const handleRunBenchmark = async () => {
     setBenchmarkLoading(true);
-    toast.info('Executing academic benchmark test suite across 16 CWE samples...');
+    toast.info('Executing live Hybrid Engine benchmark suite across 16 CWE samples...');
     try {
       const res = await runAcademicBenchmark();
       setBenchmarkData(res);
-      toast.success(`Benchmark finished: 100% accuracy, average latency ${res.averageLatencyMs}ms`);
-    } catch (e) {
-      toast.error('Failed to execute benchmark');
+      toast.success(
+        `Benchmark finished: ${res.accuracy}% accuracy (${res.truePositives + res.trueNegatives}/${res.totalTests}), avg latency ${res.averageLatencyMs}ms`
+      );
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to execute live benchmark');
     } finally {
       setBenchmarkLoading(false);
     }
@@ -147,7 +152,7 @@ export const VivaDefensePage: React.FC = () => {
           <ul className="space-y-2 pl-4 list-disc text-slate-300">
             <li><strong>Data Privacy Hazard:</strong> Sending proprietary software to third-party cloud LLMs violates corporate intellectual property and privacy mandates.</li>
             <li><strong>AI Hallucination:</strong> Unconstrained LLMs frequently propose hallucinated, syntactically broken, or insecure fix suggestions.</li>
-            <li><strong>Research Objective:</strong> Engineer a hybrid SAST platform combining compiler AST structural inspection, calibrated machine learning (90.5% accuracy), and compile-time AST fix verification with zero external code transmission.</li>
+            <li><strong>Research Objective:</strong> Engineer a hybrid SAST platform combining compiler AST structural inspection, calibrated machine learning ({modelInfo?.accuracy !== undefined ? `${modelInfo.accuracy}%` : 'verified'} holdout test accuracy), and compile-time AST fix verification with zero external code transmission.</li>
           </ul>
         </div>
       )
@@ -158,7 +163,7 @@ export const VivaDefensePage: React.FC = () => {
       content: (
         <div className="space-y-3">
           <div className="p-3 rounded-lg bg-[#0B1020] border border-cyan-800/40 font-mono text-[11px] text-cyan-300 leading-relaxed overflow-x-auto">
-            {"Source Code"} ➔ {"[AST Structural Parser]"} ➔ {"[Data-Flow Taint Tracker]"} ➔ {"[RandomForest+LR ML Classifier]"} ➔ {"[Google OSV.dev & ManageEngine Grounding]"} ➔ {"[AST Fix Verification]"}
+            {"Source Code"} ➔ {"[AST Structural Parser]"} ➔ {"[Data-Flow Taint Tracker]"} ➔ {`[${modelInfo?.selectedBinaryModel ?? 'Calibrated'} ML Classifier]`} ➔ {"[Google OSV.dev & ManageEngine Grounding]"} ➔ {"[AST Fix Verification]"}
           </div>
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div className="p-3 rounded-lg bg-card border border-border">
@@ -167,7 +172,11 @@ export const VivaDefensePage: React.FC = () => {
             </div>
             <div className="p-3 rounded-lg bg-card border border-border">
               <span className="font-semibold text-white">Engine 2: ML Classifier</span>
-              <p className="text-slate-400 text-[11px] mt-1">4,017-feature hybrid model (TF-IDF + 17 domain sinks) trained on 313 real-world samples with 90.5% accuracy.</p>
+              <p className="text-slate-400 text-[11px] mt-1">
+                {modelInfo
+                  ? `${modelInfo.featuresCount.toLocaleString()}-feature hybrid model (TF-IDF + 22 domain sinks) trained across ${modelInfo.totalSamples} samples with ${modelInfo.accuracy}% untouched test accuracy.`
+                  : 'Hybrid TF-IDF + domain security sink classifier evaluated on strictly group-disjoint holdout partitions.'}
+              </p>
             </div>
           </div>
         </div>
@@ -257,11 +266,19 @@ export const VivaDefensePage: React.FC = () => {
         <div className="space-y-3 text-xs text-slate-300">
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-lg bg-surface border border-border">
-              <div className="font-bold text-cyan-400">90.48% Accuracy</div>
-              <div className="text-[11px] text-slate-400 mt-1">Calibrated ML ensemble with 96.3% precision, eliminating developer alert fatigue.</div>
+              <div className="font-bold text-cyan-400">
+                {modelInfo ? `${modelInfo.accuracy}% Test Accuracy` : 'Live Holdout Accuracy'}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">
+                {modelInfo
+                  ? `${modelInfo.selectedBinaryModel || 'ML'} model with ${modelInfo.precision}% precision, ${modelInfo.recall}% recall, and ${modelInfo.falsePositiveRate ?? 0}% FPR (n=${modelInfo.testSamples} untouched test).`
+                  : 'Group-disjoint supervised evaluation balancing precision and recall without leakage.'}
+              </div>
             </div>
             <div className="p-3 rounded-lg bg-surface border border-border">
-              <div className="font-bold text-emerald-400">10-15ms Latency</div>
+              <div className="font-bold text-emerald-400">
+                {benchmarkData ? `${benchmarkData.averageLatencyMs}ms Avg Latency` : 'Sub-Millisecond AST + Fast ML'}
+              </div>
               <div className="text-[11px] text-slate-400 mt-1">Near-instant local inference suitable for automated CI/CD pipeline integration.</div>
             </div>
           </div>
@@ -358,7 +375,7 @@ export const VivaDefensePage: React.FC = () => {
                 Empirical Evaluation Benchmark Suite
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Runs 16 standardized vulnerable vs secure test pairs across SQLi, Command Injection, Path Traversal, Deserialization, Crypto, Secrets, and XSS.
+                Runs 16 standardized vulnerable/secure unit test cases (8 pairs) across SQLi, Command Injection, Path Traversal, Deserialization, Crypto, Secrets, XSS, and Prototype Pollution.
               </p>
             </div>
             <button
@@ -379,17 +396,27 @@ export const VivaDefensePage: React.FC = () => {
                 <div className="p-3.5 rounded-xl bg-card border border-border">
                   <span className="text-[11px] text-slate-400 uppercase font-mono">Benchmark Accuracy</span>
                   <p className="text-2xl font-bold text-emerald-400 mt-1">{benchmarkData.accuracy}%</p>
-                  <span className="text-[10px] text-slate-500">Correctly Classified</span>
+                  <span className="text-[10px] text-slate-500">
+                    {benchmarkData.truePositives + benchmarkData.trueNegatives} of {benchmarkData.totalTests} Cases Correct
+                  </span>
                 </div>
                 <div className="p-3.5 rounded-xl bg-card border border-border">
                   <span className="text-[11px] text-slate-400 uppercase font-mono">Precision</span>
                   <p className="text-2xl font-bold text-cyan-400 mt-1">{benchmarkData.precision}%</p>
-                  <span className="text-[10px] text-slate-500">Zero False Positives</span>
+                  <span className="text-[10px] text-slate-500">
+                    {benchmarkData.falsePositives === 0
+                      ? 'Zero False Positives'
+                      : `${benchmarkData.falsePositives} False Positive${benchmarkData.falsePositives === 1 ? '' : 's'}`}
+                  </span>
                 </div>
                 <div className="p-3.5 rounded-xl bg-card border border-border">
                   <span className="text-[11px] text-slate-400 uppercase font-mono">Recall</span>
                   <p className="text-2xl font-bold text-blue-400 mt-1">{benchmarkData.recall}%</p>
-                  <span className="text-[10px] text-slate-500">Zero False Negatives</span>
+                  <span className="text-[10px] text-slate-500">
+                    {benchmarkData.falseNegatives === 0
+                      ? 'Zero False Negatives'
+                      : `${benchmarkData.falseNegatives} False Negative${benchmarkData.falseNegatives === 1 ? '' : 's'}`}
+                  </span>
                 </div>
                 <div className="p-3.5 rounded-xl bg-card border border-border">
                   <span className="text-[11px] text-slate-400 uppercase font-mono">F1-Score</span>
@@ -413,19 +440,36 @@ export const VivaDefensePage: React.FC = () => {
                     <span className="text-[10px] text-slate-400 block">True Positives (TP)</span>
                     <span className="text-xl font-bold text-emerald-400">{benchmarkData.truePositives}</span>
                   </div>
-                  <div className="p-3 rounded-lg bg-slate-900 border border-border">
+                  <div className={`p-3 rounded-lg border ${
+                    benchmarkData.falsePositives > 0
+                      ? 'bg-amber-950/40 border-amber-700'
+                      : 'bg-slate-900 border-border'
+                  }`}>
                     <span className="text-[10px] text-slate-400 block">False Positives (FP)</span>
-                    <span className="text-xl font-bold text-slate-400">{benchmarkData.falsePositives}</span>
+                    <span className={`text-xl font-bold ${benchmarkData.falsePositives > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+                      {benchmarkData.falsePositives}
+                    </span>
                   </div>
-                  <div className="p-3 rounded-lg bg-slate-900 border border-border">
+                  <div className={`p-3 rounded-lg border ${
+                    benchmarkData.falseNegatives > 0
+                      ? 'bg-rose-950/40 border-rose-700'
+                      : 'bg-slate-900 border-border'
+                  }`}>
                     <span className="text-[10px] text-slate-400 block">False Negatives (FN)</span>
-                    <span className="text-xl font-bold text-slate-400">{benchmarkData.falseNegatives}</span>
+                    <span className={`text-xl font-bold ${benchmarkData.falseNegatives > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                      {benchmarkData.falseNegatives}
+                    </span>
                   </div>
                   <div className="p-3 rounded-lg bg-blue-950/40 border border-blue-800">
                     <span className="text-[10px] text-slate-400 block">True Negatives (TN)</span>
                     <span className="text-xl font-bold text-blue-400">{benchmarkData.trueNegatives}</span>
                   </div>
                 </div>
+                {modelInfo && (
+                  <p className="mt-3 pt-2.5 border-t border-border/50 text-[11px] text-slate-400 font-mono">
+                    Trained ML Holdout Evaluation ({modelInfo.selectedBinaryModel || 'ML Classifier'}, n={modelInfo.testSamples} untouched): Acc {modelInfo.accuracy}% • Prec {modelInfo.precision}% • Rec {modelInfo.recall}% • F1 {modelInfo.f1Score}% • FPR {modelInfo.falsePositiveRate ?? 0}%
+                  </p>
+                )}
               </div>
 
               {/* Individual Test Cases Table */}
@@ -466,9 +510,15 @@ export const VivaDefensePage: React.FC = () => {
                           </td>
                           <td className="py-2 px-3 font-mono text-slate-400">{res.latencyMs} ms</td>
                           <td className="py-2 px-3">
-                            <span className="flex items-center gap-1 text-emerald-400 font-bold">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> PASSED
-                            </span>
+                            {res.passed ? (
+                              <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> PASSED
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-rose-400 font-bold">
+                                <AlertTriangle className="w-3.5 h-3.5" /> FAILED
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -621,6 +671,9 @@ export const VivaDefensePage: React.FC = () => {
                 <div>
                   <span className="text-[11px] text-slate-400 block font-mono">Official Vector String</span>
                   <span className="text-xs font-mono text-cyan-300">{cvssResult.vectorString}</span>
+                  <span className="text-[11px] text-slate-400 block font-mono mt-0.5">
+                    Exploitability: {cvssResult.exploitabilityScore} • Impact: {cvssResult.impactScore}
+                  </span>
                 </div>
               </div>
 
@@ -710,6 +763,29 @@ export const VivaDefensePage: React.FC = () => {
               </div>
             </div>
 
+            {/* User Interaction */}
+            <div className="p-3.5 rounded-xl bg-card border border-border space-y-2">
+              <span className="font-semibold text-white block">User Interaction (UI)</span>
+              <div className="grid grid-cols-2 gap-1.5 font-mono">
+                {[
+                  { label: 'None (N)', val: 'N' },
+                  { label: 'Required (R)', val: 'R' },
+                ].map((opt) => (
+                  <button
+                    key={opt.val}
+                    onClick={() => handleCvssChange('userInteraction', opt.val)}
+                    className={`py-1.5 px-1 rounded text-center text-[10px] transition-colors ${
+                      cvssRequest.userInteraction === opt.val
+                        ? 'bg-primary text-white font-bold'
+                        : 'bg-surface text-slate-400 hover:bg-surface/80'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Scope */}
             <div className="p-3.5 rounded-xl bg-card border border-border space-y-2">
               <span className="font-semibold text-white block">Scope (S)</span>
@@ -771,6 +847,30 @@ export const VivaDefensePage: React.FC = () => {
                     onClick={() => handleCvssChange('integrity', opt.val)}
                     className={`py-1.5 px-1 rounded text-center text-[10px] transition-colors ${
                       cvssRequest.integrity === opt.val
+                        ? 'bg-primary text-white font-bold'
+                        : 'bg-surface text-slate-400 hover:bg-surface/80'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Availability */}
+            <div className="p-3.5 rounded-xl bg-card border border-border space-y-2">
+              <span className="font-semibold text-white block">Availability Impact (A)</span>
+              <div className="grid grid-cols-3 gap-1.5 font-mono">
+                {[
+                  { label: 'None (N)', val: 'N' },
+                  { label: 'Low (L)', val: 'L' },
+                  { label: 'High (H)', val: 'H' },
+                ].map((opt) => (
+                  <button
+                    key={opt.val}
+                    onClick={() => handleCvssChange('availability', opt.val)}
+                    className={`py-1.5 px-1 rounded text-center text-[10px] transition-colors ${
+                      cvssRequest.availability === opt.val
                         ? 'bg-primary text-white font-bold'
                         : 'bg-surface text-slate-400 hover:bg-surface/80'
                     }`}

@@ -39,8 +39,13 @@ class ProjectRepository(BaseRepository[Project]):
             stmt = stmt.where(Project.name.ilike(search_filter) | Project.description.ilike(search_filter))
             count_stmt = count_stmt.where(Project.name.ilike(search_filter) | Project.description.ilike(search_filter))
 
-        # Sorting
-        sort_col = getattr(Project, sort_by, Project.created_at)
+        # Strict allowlisted sorting columns
+        allowed_sort_cols = {
+            "created_at": Project.created_at,
+            "updated_at": Project.updated_at,
+            "name": Project.name,
+        }
+        sort_col = allowed_sort_cols.get(sort_by, Project.created_at)
         stmt = stmt.order_by(desc(sort_col) if sort_order.lower() == "desc" else asc(sort_col))
         stmt = stmt.offset(skip).limit(limit)
 

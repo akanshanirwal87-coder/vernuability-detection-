@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from core.permissions import check_rate_limit
+from core.permissions import check_rate_limit, get_current_user
 from schemas.common import ApiResponse
 from analyzer.sca_scanner import sca_scanner
 from analyzer.osv_client import osv_client
@@ -24,7 +24,11 @@ class OsvQueryRequest(BaseModel):
 
 
 @router.post("/scan", response_model=ApiResponse[Dict[str, Any]])
-def scan_manifest(req: ScaManifestScanRequest, _=Depends(check_rate_limit)):
+def scan_manifest(
+    req: ScaManifestScanRequest,
+    current_user: dict = Depends(get_current_user),
+    _=Depends(check_rate_limit),
+):
     """Perform Software Composition Analysis on package manifests against OSV.dev."""
     scan_id = f"sca-{uuid.uuid4().hex[:8]}"
     findings = sca_scanner.scan_manifest(req.fileName, req.content, scan_id)
@@ -52,7 +56,11 @@ def scan_manifest(req: ScaManifestScanRequest, _=Depends(check_rate_limit)):
 
 
 @router.post("/query", response_model=ApiResponse[Dict[str, Any]])
-def query_package_osv(req: OsvQueryRequest, _=Depends(check_rate_limit)):
+def query_package_osv(
+    req: OsvQueryRequest,
+    current_user: dict = Depends(get_current_user),
+    _=Depends(check_rate_limit),
+):
     """Direct package vulnerability lookup in the Google OSV.dev database."""
     results = osv_client.query_package(req.packageName, req.ecosystem or "PyPI", req.version)
     return ApiResponse(

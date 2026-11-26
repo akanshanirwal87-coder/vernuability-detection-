@@ -11,6 +11,10 @@ RUN npm ci
 # Copy frontend source and configuration
 COPY frontend/ ./
 
+# Use relative URLs by default behind Nginx reverse proxy unless overridden
+ARG VITE_API_BASE_URL=""
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
 # Build production distribution
 RUN npm run build
 

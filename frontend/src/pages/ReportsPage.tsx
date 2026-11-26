@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getScanById, getScans } from '../services/scanService';
+import { fetchAuditReport } from '../services/reportService';
 import { 
   generatePdfReport, 
   exportJsonReport, 
@@ -46,8 +47,15 @@ export const ReportsPage: React.FC = () => {
       const allScans = await getScans();
       setAvailableScans(allScans.map(s => ({ id: s.id, name: `${s.projectName} (${s.fileName})` })));
 
-      const targetId = scanId || (allScans.length > 0 ? allScans[0].id : 'scan-demo-01');
-      const targetScan = await getScanById(targetId);
+      const targetId = scanId || (allScans.length > 0 ? allScans[0].id : null);
+      if (!targetId) {
+        setScan(null);
+        return;
+      }
+      const [targetScan] = await Promise.all([
+        getScanById(targetId),
+        fetchAuditReport(targetId).catch(() => null),
+      ]);
       setScan(targetScan);
     } catch (e) {
       toast.error('Failed to load report data');

@@ -189,12 +189,15 @@ export const ModelDatasetsPage: React.FC = () => {
           </div>
           <div className="mt-3">
             <div className="text-2xl font-bold font-mono text-emerald-400">
-              <AnimatedCounter value={modelInfo?.accuracy ?? 90.48} decimals={2} suffix="%" />
+              <AnimatedCounter value={modelInfo?.accuracy ?? 0} decimals={2} suffix="%" />
             </div>
             <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-              <span>Precision: <strong className="text-slate-300 font-mono"><AnimatedCounter value={modelInfo?.precision ?? 96.3} decimals={1} suffix="%" /></strong></span>
+              <span>Precision: <strong className="text-slate-300 font-mono"><AnimatedCounter value={modelInfo?.precision ?? 0} decimals={1} suffix="%" /></strong></span>
               <span>•</span>
-              <span>F1: <strong className="text-slate-300 font-mono"><AnimatedCounter value={modelInfo?.f1Score ?? 89.7} decimals={1} suffix="%" /></strong></span>
+              <span>F1: <strong className="text-slate-300 font-mono"><AnimatedCounter value={modelInfo?.f1Score ?? 0} decimals={1} suffix="%" /></strong></span>
+            </div>
+            <div className="text-[10px] text-slate-400 mt-1 font-mono">
+              {modelInfo?.selectedBinaryModel || 'Classifier'} • FPR: {modelInfo?.falsePositiveRate ?? 0}% • Test n={modelInfo?.testSamples ?? 0}
             </div>
           </div>
         </div>
@@ -208,10 +211,10 @@ export const ModelDatasetsPage: React.FC = () => {
           </div>
           <div className="mt-3">
             <div className="text-2xl font-bold font-mono text-white">
-              <AnimatedCounter value={modelInfo?.totalSamples ?? 313} />
+              <AnimatedCounter value={modelInfo?.totalSamples ?? 0} />
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              Curated code patterns & CVE signatures
+              Train: {modelInfo?.trainSamplesOriginal ?? 0} • Val: {modelInfo?.validationSamples ?? 0} • Test: {modelInfo?.testSamples ?? 0}
             </div>
           </div>
         </div>
@@ -225,10 +228,10 @@ export const ModelDatasetsPage: React.FC = () => {
           </div>
           <div className="mt-3">
             <div className="text-2xl font-bold font-mono text-cyan-400">
-              <AnimatedCounter value={modelInfo?.cweAccuracy ?? 92.06} decimals={2} suffix="%" />
+              <AnimatedCounter value={modelInfo?.cweAccuracy ?? 0} decimals={2} suffix="%" />
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              8 MITRE CWE categories classified
+              {Object.keys(modelInfo?.cweDistribution ?? {}).filter((k) => k !== 'NONE').length || 0} MITRE CWE categories classified
             </div>
           </div>
         </div>

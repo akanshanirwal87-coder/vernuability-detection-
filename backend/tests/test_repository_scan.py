@@ -55,5 +55,35 @@ def test_analyze_repository_multi_file():
         assert result.scan_id == "scan-repo-test-01"
         assert result.scanned_files_count >= 1
         assert len(result.findings) >= 1
-        assert any(f.get("cwe_id") in ["CWE-89", "CWE-79", "CWE-94"] or "SQL" in f.get("title", "") for f in result.findings)
+        assert "total" in result.findings_count
+        assert any(f.get("cwe") in ["CWE-89", "CWE-79", "CWE-94"] or "SQL" in f.get("title", "") for f in result.findings)
         assert len(progress_calls) > 0
+
+
+def test_repository_scan_service_persists_to_db(db_session, normal_user):
+    """Verify RepositoryScanService persists Scan & canonical Finding rows without crashing."""
+    from unittest.mock import patch
+    from services.repository_scan_service import RepositoryScanService
+    from db.models import Scan, Finding
+
+    with tempfile.TemporaryDirectory() as fake_repo:
+        with open(os.path.join(fake_repo, "vuln.py"), "w", encoding="utf-8") as f:
+            f.write("import os\nos.system('ls ' + user_dir)\n")
+
+        svc = RepositoryScanService(db=db_session)
+        with patch.object(svc.github_repo_service, "resolve_ref_commit_sha", return_value="abcdef1234567890"), \
+             patch.object(svc.downloader, "download_and_extract", return_value=(fake_repo, "abcdef1234567890")), \
+             patch.object(svc.downloader, "cleanup", return_value=None):
+            res = svc.execute_repository_scan(
+                repository_url="https://github.com/acme/vuln-repo",
+                branch="main",
+                user_id=normal_user.id,
+            )
+
+        assert res["status"] == "COMPLETED"
+        persisted_scan = db_session.query(Scan).filter(Scan.id == res["id"]).first()
+        assert persisted_scan is not None
+        assert persisted_scan.status == "COMPLETED"
+        assert persisted_scan.user_id == normal_user.id
+        persisted_findings = db_session.query(Finding).filter(Finding.scan_id == res["id"]).all()
+        assert len(persisted_findings) >= 1

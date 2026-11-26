@@ -38,9 +38,10 @@ fi
 # Execute database migrations if alembic configuration is present
 if [ -f "/app/backend/alembic.ini" ]; then
     echo "[SecureCode AI] Running database migrations (alembic upgrade head)..."
-    alembic -c /app/backend/alembic.ini upgrade head || {
-        echo "[SecureCode AI] Warning: Alembic migrations encountered an issue or database is already up-to-date."
-    }
+    if ! alembic -c /app/backend/alembic.ini upgrade head; then
+        echo "[SecureCode AI] ERROR: Alembic database migration failed. Aborting startup." >&2
+        exit 1
+    fi
 fi
 
 echo "[SecureCode AI] Startup checks complete. Starting target command: $@"

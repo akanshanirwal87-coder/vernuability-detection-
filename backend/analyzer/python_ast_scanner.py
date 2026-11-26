@@ -284,10 +284,12 @@ class PythonAstScanner:
                     if isinstance(target, ast.Name) and secret_patterns.search(target.id):
                         if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                             val = node.value.value
-                            # If secret string length is >= 10 and not obviously a placeholder
+                            # If secret string length is >= 8 and not obviously a placeholder
                             if len(val) >= 8 and not val.startswith("your_") and not val.startswith("dummy_"):
                                 self.sinks_identified += 1
-                                evidence = self._get_line_code(node.lineno, node.lineno)
+                                masked_val = val[:4] + "***REDACTED***"
+                                raw_evidence = self._get_line_code(node.lineno, node.lineno)
+                                masked_evidence = raw_evidence.replace(val, masked_val)
                                 self.findings.append({
                                     "id": f"fnd-cred-{uuid.uuid4().hex[:6]}",
                                     "title": "Hardcoded Sensitive Credential / Secret",
@@ -300,9 +302,9 @@ class PythonAstScanner:
                                     "endLine": node.end_lineno or node.lineno,
                                     "confidence": 0.94,
                                     "description": f"Variable `{target.id}` contains hardcoded secret token directly in source code.",
-                                    "evidence": evidence,
+                                    "evidence": masked_evidence,
                                     "impact": "Credentials committed to repositories can be extracted by attackers to access private APIs and databases.",
-                                    "vulnerableCode": evidence,
+                                    "vulnerableCode": masked_evidence,
                                     "remediationCode": f'{target.id} = os.getenv("{target.id.upper()}")',
                                     "remediationExplanation": "Extract secrets into environment variables or use a secret management service.",
                                     "bestPractices": [

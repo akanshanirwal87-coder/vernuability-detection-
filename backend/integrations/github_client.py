@@ -1,8 +1,10 @@
 import time
-from typing import Optional, Dict, Any, List, Iterator
+from urllib.parse import urlparse, urljoin
+from typing import Optional, Dict, Any, List
 import requests
 from core.config import settings
 from core.logging_config import logger
+from integrations.repository_validator import RepositoryValidator, RepositoryValidationError
 
 
 class GitHubApiError(Exception):
@@ -36,17 +38,63 @@ class GitHubClient:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
+    ALLOWED_REDIRECT_HOSTS = {"github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com"}
+
+    def _validate_redirect_url(self, target_url: str) -> str:
+        parsed = urlparse(target_url)
+        hostname = (parsed.hostname or "").lower()
+        if parsed.scheme.lower() != "https" or not hostname:
+            raise GitHubApiError("Blocked unsafe non-HTTPS redirect from GitHub endpoint.", status_code=400)
+        allowed = set(settings.ALLOWED_GITHUB_HOSTS) | self.ALLOWED_REDIRECT_HOSTS
+        if hostname not in allowed:
+            raise GitHubApiError(f"Blocked redirect to untrusted host '{hostname}'.", status_code=400)
+        try:
+            RepositoryValidator._verify_ip_boundaries(hostname)
+        except RepositoryValidationError as exc:
+            raise GitHubApiError(str(exc), status_code=400)
+        return target_url
+
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
         url = f"{self.base_url}/{path.lstrip('/')}"
         headers = kwargs.pop("headers", {})
         combined_headers = {**self._headers(), **headers}
         timeout = kwargs.pop("timeout", 15)
+        kwargs.pop("allow_redirects", None)
+
+        current_url = url
+        current_headers = dict(combined_headers)
+        resp: Optional[requests.Response] = None
 
         try:
-            resp = requests.request(method, url, headers=combined_headers, timeout=timeout, **kwargs)
+            for _ in range(5):
+                resp = requests.request(
+                    method,
+                    current_url,
+                    headers=current_headers,
+                    timeout=timeout,
+                    allow_redirects=False,
+                    **kwargs,
+                )
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    location = resp.headers.get("Location")
+                    resp.close()
+                    if not location:
+                        raise GitHubApiError("GitHub returned redirect without Location header.", status_code=502)
+                    next_url = urljoin(current_url, location)
+                    self._validate_redirect_url(next_url)
+                    # Strip bearer authorization header when redirecting to external CDN host
+                    if urlparse(next_url).hostname != urlparse(current_url).hostname:
+                        current_headers.pop("Authorization", None)
+                    current_url = next_url
+                    continue
+                break
+            else:
+                raise GitHubApiError("Too many redirects from GitHub API.", status_code=502)
+        except GitHubApiError:
+            raise
         except requests.RequestException as e:
             logger.error("GitHub API request failed: %s %s -> %s", method, url, str(e))
-            raise GitHubApiError(f"Network error connecting to GitHub: {str(e)}")
+            raise GitHubApiError("Network error connecting to GitHub API.")
 
         # Check rate limits
         remaining = resp.headers.get("x-ratelimit-remaining")
@@ -63,9 +111,11 @@ class GitHubClient:
         elif resp.status_code == 401:
             raise GitHubApiError("GitHub authentication failed or token expired.", status_code=401)
         elif resp.status_code == 403:
-            raise GitHubApiError(f"Access forbidden: {resp.text}", status_code=403)
+            logger.warning("GitHub API returned 403 for %s", current_url)
+            raise GitHubApiError("Access forbidden by GitHub API.", status_code=403)
         elif resp.status_code >= 400:
-            raise GitHubApiError(f"GitHub API error ({resp.status_code}): {resp.text}", status_code=resp.status_code)
+            logger.warning("GitHub API error %d for %s", resp.status_code, current_url)
+            raise GitHubApiError(f"GitHub API error ({resp.status_code}).", status_code=resp.status_code)
 
         return resp
 

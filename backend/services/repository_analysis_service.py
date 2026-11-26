@@ -38,7 +38,12 @@ class RepositoryAnalysisService:
             return "javascript"
         elif ext in (".ts", ".tsx"):
             return "typescript"
-        elif os.path.basename(file_path).lower() in ("requirements.txt", "pyproject.toml", "package.json"):
+        elif os.path.basename(file_path).lower() in (
+            "requirements.txt",
+            "pyproject.toml",
+            "package.json",
+            "package-lock.json",
+        ):
             return "manifest"
         return None
 
@@ -82,7 +87,7 @@ class RepositoryAnalysisService:
 
                 lang = self.detect_file_language(rel_path)
                 if lang == "manifest":
-                    manifest_findings = self._scan_manifest_file(rel_path, content)
+                    manifest_findings = self._scan_manifest_file(rel_path, content, actual_scan_id)
                     all_findings.extend(manifest_findings)
                 elif lang in ("python", "javascript", "typescript"):
                     scanner = HybridScanner(
@@ -92,7 +97,9 @@ class RepositoryAnalysisService:
                     )
                     file_findings, file_ast, _ = scanner.scan()
                     for f in file_findings:
+                        f["file"] = rel_path
                         f["file_path"] = rel_path
+                        f["scanId"] = actual_scan_id
                         all_findings.append(f)
                 else:
                     skipped_during_analysis.append({"path": rel_path, "reason": f"Unsupported language '{lang}'"})
@@ -110,15 +117,16 @@ class RepositoryAnalysisService:
         # Deduplicate findings
         deduped_findings = self._deduplicate_findings(all_findings)
 
-        # Compute severity breakdown
-        severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        # Compute lowercase severity breakdown consistent with ScanService / ScanResponseModel
+        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": len(deduped_findings)}
         highest_sev = "LOW"
         sev_rank = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
 
         for f in deduped_findings:
-            sev = f.get("severity", "LOW").upper()
-            if sev in severity_counts:
-                severity_counts[sev] += 1
+            sev = str(f.get("severity", "LOW")).upper()
+            sev_lower = sev.lower()
+            if sev_lower in severity_counts:
+                severity_counts[sev_lower] += 1
             if sev_rank.get(sev, 0) > sev_rank.get(highest_sev, 0):
                 highest_sev = sev
 
@@ -142,47 +150,17 @@ class RepositoryAnalysisService:
             findings_count=severity_counts,
         )
 
-    def _scan_manifest_file(self, rel_path: str, content: str) -> List[Dict[str, Any]]:
-        manifest_findings: List[Dict[str, Any]] = []
-        fname = os.path.basename(rel_path).lower()
-
+    def _scan_manifest_file(self, rel_path: str, content: str, scan_id: str = "sca") -> List[Dict[str, Any]]:
         try:
-            if fname in ("requirements.txt", "pyproject.toml"):
-                deps = DependencyParser.parse_requirements_txt(content) if fname == "requirements.txt" else DependencyParser.parse_pyproject_toml(content)
-                ecosystem = "PyPI"
-            elif fname in ("package.json", "package-lock.json"):
-                deps = DependencyParser.parse_package_json(content) if fname == "package.json" else DependencyParser.parse_package_lock_json(content)
-                ecosystem = "npm"
-            else:
-                return []
-
-            for dep in deps:
-                name = dep.get("name")
-                version = dep.get("version")
-                if not name:
-                    continue
-
-                sca_results = sca_scanner.scan_dependency(name, version, ecosystem=ecosystem)
-                for sca_item in sca_results:
-                    manifest_findings.append({
-                        "id": f"dep-{name}-{sca_item.get('advisory_id', 'vuln')}",
-                        "title": sca_item.get("summary") or f"Vulnerability in {name}",
-                        "description": sca_item.get("details", ""),
-                        "severity": sca_item.get("severity", "MEDIUM"),
-                        "cwe_id": sca_item.get("cwe_id", "CWE-1395"),
-                        "category": "Dependency",
-                        "detection_source": "OSV.dev SCA Scanner",
-                        "file_path": rel_path,
-                        "line_number": dep.get("line_number", 1),
-                        "snippet": f"{name}=={version}" if version else name,
-                        "remediation": sca_item.get("recommendation", f"Upgrade {name} to patched version"),
-                        "confidence": 0.95,
-                    })
-
+            findings = sca_scanner.scan_manifest(os.path.basename(rel_path), content, scan_id)
+            for f in findings:
+                f["file"] = rel_path
+                f["file_path"] = rel_path
+                f["scanId"] = scan_id
+            return findings
         except Exception as e:
             logger.warning("Error parsing dependency manifest '%s': %s", rel_path, str(e))
-
-        return manifest_findings
+            return []
 
     @staticmethod
     def _deduplicate_findings(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -190,9 +168,9 @@ class RepositoryAnalysisService:
         deduped = []
         for f in findings:
             key = (
-                f.get("file_path", ""),
-                f.get("line_number", 0),
-                f.get("cwe_id", ""),
+                f.get("file") or f.get("file_path") or "",
+                f.get("startLine") or f.get("line_number") or 0,
+                f.get("cwe") or f.get("cwe_id") or "",
                 f.get("title", ""),
             )
             if key not in seen:

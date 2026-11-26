@@ -15,16 +15,29 @@ import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold, train_test_split
 
 
+PYTHON_JS_KEYWORDS = {
+    "import", "from", "def", "class", "return", "if", "else", "elif", "for", "while",
+    "try", "except", "with", "as", "in", "is", "not", "and", "or", "true", "false",
+    "none", "const", "let", "var", "function", "async", "await", "new", "throw",
+    "select", "from", "where", "insert", "into", "update", "delete", "drop",
+    "execute", "system", "popen", "run", "loads", "safe_load", "eval", "exec",
+    "md5", "sha1", "sha256", "innerhtml", "textcontent", "open", "basename",
+    "abspath", "resolve", "getenv", "environ", "env", "mktemp", "debug",
+}
+
+
 def generate_pattern_signature(code: str) -> str:
     """
-    Computes a canonical signature for a code snippet by stripping whitespace,
-    string literal contents, and variable identifier names to group related variants.
+    Computes a canonical signature for a code snippet by normalizing string literals
+    and non-keyword variable identifiers while preserving API sinks & keywords.
     """
-    # Normalize string literals
     normalized = re.sub(r'["\'][^"\']*["\']', "STR_LITERAL", code)
-    # Normalize common variable identifiers
-    normalized = re.sub(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', "ID", normalized)
-    # Strip whitespace
+
+    def _replace_ident(match: re.Match) -> str:
+        tok = match.group(0)
+        return tok.lower() if tok.lower() in PYTHON_JS_KEYWORDS else "VAR"
+
+    normalized = re.sub(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', _replace_ident, normalized)
     normalized = re.sub(r'\s+', "", normalized)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
@@ -82,12 +95,18 @@ class DataSplitter:
         rng = np.random.RandomState(self.random_seed)
         rng.shuffle(unique_groups)
 
-        # Stratification label per group: majority vulnerability label
-        group_labels = []
-        for gid in unique_groups:
+        # Stratify groups by majority (isVulnerable, cwe) label so Train/Val/Test
+        # preserve class & CWE distribution while keeping groups strictly disjoint.
+        strata: Dict[Tuple[int, str], List[str]] = {}
+        for gid in sorted(unique_groups):
             group_items = group_map[gid]
             vuln_count = sum(1 if it.get("isVulnerable") else 0 for it in group_items)
-            group_labels.append(1 if vuln_count >= (len(group_items) / 2) else 0)
+            majority_vuln = 1 if vuln_count >= (len(group_items) / 2) else 0
+            cwe_label = next(
+                (it.get("cwe", "NONE") for it in group_items if it.get("isVulnerable") and it.get("cwe", "NONE") != "NONE"),
+                "NONE",
+            )
+            strata.setdefault((majority_vuln, cwe_label), []).append(gid)
 
         total_groups = len(unique_groups)
         n_test = max(1, int(round(total_groups * self.test_size)))
@@ -97,10 +116,47 @@ class DataSplitter:
         if n_train <= 0:
             raise ValueError(f"Too few groups ({total_groups}) for requested test and validation fractions.")
 
-        # Allocate groups ensuring balanced representation
-        test_groups = set(unique_groups[:n_test])
-        val_groups = set(unique_groups[n_test : n_test + n_val])
-        train_groups = set(unique_groups[n_test + n_val :])
+        test_groups_list: List[str] = []
+        val_groups_list: List[str] = []
+        train_groups_list: List[str] = []
+
+        # Shuffle within each stratum deterministically and allocate across splits
+        leftover: List[str] = []
+        for stratum_key in sorted(strata.keys()):
+            gids = list(strata[stratum_key])
+            rng.shuffle(gids)
+            k = len(gids)
+            if k >= 3:
+                s_test = max(1, int(round(k * self.test_size)))
+                s_val = max(1, int(round(k * self.val_size)))
+                if s_test + s_val >= k:
+                    s_test = 1
+                    s_val = 1
+                test_groups_list.extend(gids[:s_test])
+                val_groups_list.extend(gids[s_test : s_test + s_val])
+                train_groups_list.extend(gids[s_test + s_val :])
+            else:
+                leftover.extend(gids)
+
+        # Distribute small-stratum groups while balancing counts toward targets
+        rng.shuffle(leftover)
+        for gid in leftover:
+            if len(test_groups_list) < n_test:
+                test_groups_list.append(gid)
+            elif len(val_groups_list) < n_val:
+                val_groups_list.append(gid)
+            else:
+                train_groups_list.append(gid)
+
+        # Final count rebalancing if rounding overshot targets slightly
+        while len(test_groups_list) > n_test and len(train_groups_list) < n_train:
+            train_groups_list.append(test_groups_list.pop())
+        while len(val_groups_list) > n_val and len(train_groups_list) < n_train:
+            train_groups_list.append(val_groups_list.pop())
+
+        test_groups = set(test_groups_list)
+        val_groups = set(val_groups_list)
+        train_groups = set(train_groups_list)
 
         train_samples = [it for it in tagged_samples if it["_group_id"] in train_groups]
         val_samples = [it for it in tagged_samples if it["_group_id"] in val_groups]

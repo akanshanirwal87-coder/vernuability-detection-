@@ -1,3 +1,4 @@
+import hmac
 from fastapi import APIRouter, HTTPException, Depends, status, Request
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -36,10 +37,8 @@ def login(req: LoginRequest, request: Request, _=Depends(check_rate_limit)):
     password = req.password
 
     # Check Admin Credentials
-    if username == settings.ADMIN_USERNAME and verify_password(password, settings.ADMIN_PASSWORD_HASH):
+    if hmac.compare_digest(username, settings.ADMIN_USERNAME) and verify_password(password, settings.ADMIN_PASSWORD_HASH):
         role = "admin"
-    elif username == "developer" and password == "DeveloperSecure2026!":
-        role = "developer"
     else:
         logger.warning(f"Failed login attempt for username: {username}")
         raise HTTPException(
@@ -71,9 +70,9 @@ def get_current_user_profile(user: Dict[str, Any] = Depends(get_current_user)):
 
 
 @router.post("/verify-key")
-def verify_api_key(req: VerifyKeyRequest):
+def verify_api_key(req: VerifyKeyRequest, _=Depends(check_rate_limit)):
     """Verify validity of an administrative API key without revealing secrets."""
-    is_valid = (req.api_key == settings.ADMIN_API_KEY)
+    is_valid = hmac.compare_digest(req.api_key, settings.ADMIN_API_KEY)
     return {
         "valid": is_valid,
         "role": "admin" if is_valid else None

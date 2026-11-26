@@ -347,7 +347,50 @@ def generate_training_dataset() -> List[Dict[str, Any]]:
         ("res.send('<h1>Error: ' + error_message + '</h1>')", "res.json({ error: error_message })")
     ]
 
-    # 8. Standard Secure Code Samples (General programming patterns with no vulnerabilities)
+    # 8. Dynamic Code Evaluation (CWE-95)
+    eval_pairs = [
+        ("result = eval(request.args.get('expr'))", "import ast\nresult = ast.literal_eval(safe_expr)"),
+        ("exec(user_supplied_script)", "dispatch_safe_action(action_name)"),
+        ("val = eval(f'{a} + {b}')", "val = int(a) + int(b)"),
+        ("const fn = new Function('x', req.body.code);", "const parsed = JSON.parse(req.body.payload);"),
+        ("vm.runInContext(userExpr, sandbox)", "safeEvaluateExpression(userExpr, ALLOWED_OPS)"),
+        ("eval(payload['formula'])", "ast.literal_eval(payload['formula'])"),
+    ]
+
+    # 9. Server-Side Request Forgery - SSRF (CWE-918)
+    ssrf_pairs = [
+        ("resp = requests.get(request.args.get('url'))", "validate_url(target_url)\nresp = requests.get(target_url, timeout=5)"),
+        ("data = urllib.request.urlopen(user_webhook).read()", "validate_url(user_webhook)\ndata = safe_fetch(user_webhook)"),
+        ("r = requests.post(callback_url, json=payload)", "if is_allowed_host(callback_url):\n    r = requests.post(callback_url, json=payload, timeout=5)"),
+        ("const res = await fetch(req.query.targetUrl);", "validateOutboundHost(req.query.targetUrl);\nconst res = await safeFetch(req.query.targetUrl);"),
+        ("httpx.get(form_data.get('avatar_url'))", "verify_public_ip(avatar_url)\nhttpx.get(avatar_url, timeout=4.0)"),
+        ("urllib.request.urlopen(f'http://{user_host}/status')", "validate_url(safe_url)\nhttpx.get(safe_url, timeout=3.0)"),
+    ]
+
+    # 10. Active Debug Mode in Production (CWE-489) & Insecure Temp Files (CWE-377)
+    debug_pairs = [
+        ("app.run(host='0.0.0.0', port=5000, debug=True)", "app.run(host='0.0.0.0', port=5000, debug=False)"),
+        ("flask_app.run(debug=True)", "flask_app.run(debug=os.getenv('FLASK_DEBUG', 'false').lower() == 'true')"),
+        ("uvicorn.run(app, reload=True, debug=True)", "uvicorn.run(app, host='127.0.0.1', port=8000)"),
+        ("server = create_app(debug=True)", "server = create_app(debug=False)"),
+    ]
+
+    temp_pairs = [
+        ("tmp_path = tempfile.mktemp(suffix='.zip')", "with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tf:\n    tmp_path = tf.name"),
+        ("temp_name = tempfile.mktemp(prefix='scan_')", "temp_dir = tempfile.mkdtemp(prefix='scan_')"),
+        ("out_file = '/tmp/' + req_id + '.log'", "with tempfile.NamedTemporaryFile(prefix='scan_', suffix='.log', delete=False) as f:\n    out_file = f.name"),
+        ("fname = tempfile.mktemp()", "fd, fname = tempfile.mkstemp()"),
+    ]
+
+    # 11. Prototype Pollution (CWE-1321)
+    proto_pairs = [
+        ("target['__proto__'][key] = value;", "const safeMap = Object.create(null); safeMap[key] = value;"),
+        ("obj.constructor.prototype.isAdmin = req.body.flag;", "if (!['__proto__', 'constructor', 'prototype'].includes(key)) obj[key] = val;"),
+        ("mergeDeep(defaults, req.body);", "const safeObj = Object.assign(Object.create(null), sanitizedInput);"),
+        ("config[userKey]['prototype'] = userVal;", "if (Object.hasOwn(config, userKey)) config[userKey] = userVal;"),
+    ]
+
+    # 12. Standard Secure Code Samples (General programming patterns with no vulnerabilities)
     general_secure = [
         "def calculate_total(items):\n    return sum(item['price'] * item['quantity'] for item in items)",
         "def sanitize_string(val):\n    return re.sub(r'[^a-zA-Z0-9_-]', '', str(val))",
@@ -392,6 +435,11 @@ def generate_training_dataset() -> List[Dict[str, Any]]:
     add_pairs(secrets_pairs, "CWE-798", "A07:2021-Identification and Authentication Failures", "HIGH", "HARDCODED_CREDENTIALS", "ManageEngine Endpoint Security Rules")
     add_pairs(crypto_pairs, "CWE-327", "A02:2021-Cryptographic Failures", "MEDIUM", "INSECURE_CRYPTOGRAPHY", "ManageEngine CVE-2022-47966 & OSV.dev")
     add_pairs(xss_pairs, "CWE-79", "A03:2021-Injection", "HIGH", "CROSS_SITE_SCRIPTING", "OSV.dev & ManageEngine Web Console Baselines")
+    add_pairs(eval_pairs, "CWE-95", "A03:2021-Injection", "CRITICAL", "CODE_INJECTION", "OSV.dev & Secure Coding Standards")
+    add_pairs(ssrf_pairs, "CWE-918", "A10:2021-Server-Side Request Forgery", "HIGH", "SSRF", "OSV.dev & OWASP SSRF Baselines")
+    add_pairs(debug_pairs, "CWE-489", "A05:2021-Security Misconfiguration", "HIGH", "SECURITY_MISCONFIGURATION", "ManageEngine Endpoint Security Baselines")
+    add_pairs(temp_pairs, "CWE-377", "A01:2021-Broken Access Control", "MEDIUM", "INSECURE_TEMP_FILE", "OSV.dev & Secure Coding Standards")
+    add_pairs(proto_pairs, "CWE-1321", "A03:2021-Injection", "CRITICAL", "PROTOTYPE_POLLUTION", "OSV.dev Prototype Pollution Advisories")
 
     for sec_code in general_secure:
         dataset.append({

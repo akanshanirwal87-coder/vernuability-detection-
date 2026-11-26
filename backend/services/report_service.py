@@ -24,7 +24,7 @@ class ReportService:
         if not scan:
             raise EntityNotFoundException("Scan", scan_id)
 
-        if scan.user_id and user_id and not is_admin and scan.user_id != user_id:
+        if not is_admin and (not user_id or not scan.user_id or scan.user_id != user_id):
             raise AuthorizationException("Access denied: You cannot generate a report for this scan.")
 
         counts = json.loads(scan.findings_count_json) if scan.findings_count_json else {}

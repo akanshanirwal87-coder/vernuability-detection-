@@ -130,6 +130,8 @@ class JavaScriptScanner:
             secret_match = re.search(r'(?i)(jwt_secret|api_key|token|auth_token|stripe_key)\s*[:=]\s*["\']([^"\']{10,})["\']', line_trimmed)
             if secret_match:
                 sinks_count += 1
+                raw_secret = secret_match.group(2)
+                masked_line = line_trimmed.replace(raw_secret, raw_secret[:4] + "***REDACTED***")
                 self.findings.append({
                     "id": f"fnd-secretjs-{uuid.uuid4().hex[:6]}",
                     "title": "Hardcoded Secret / Token in JavaScript Code",
@@ -142,9 +144,9 @@ class JavaScriptScanner:
                     "endLine": line_no,
                     "confidence": 0.93,
                     "description": "Sensitive credentials embedded in JavaScript source, accessible to users or public repositories.",
-                    "evidence": line_trimmed,
+                    "evidence": masked_line,
                     "impact": "Exposure of cryptographic signing secrets or third-party API credentials.",
-                    "vulnerableCode": line_trimmed,
+                    "vulnerableCode": masked_line,
                     "remediationCode": "process.env.JWT_SECRET",
                     "remediationExplanation": "Reference secrets through server-side environment variables.",
                     "bestPractices": [

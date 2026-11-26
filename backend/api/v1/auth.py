@@ -18,7 +18,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db), _=Depends(chec
         name=req.name,
         email=req.email,
         password=req.password,
-        role=req.role or "USER",
+        role="USER",
     )
     return ApiResponse(
         success=True,
@@ -52,7 +52,7 @@ def refresh_token(req: RefreshTokenRequest, db: Session = Depends(get_db), _=Dep
 
 
 @router.post("/logout", response_model=ApiResponse[dict])
-def logout(req: RefreshTokenRequest, db: Session = Depends(get_db)):
+def logout(req: RefreshTokenRequest, db: Session = Depends(get_db), _=Depends(check_rate_limit)):
     """Revoke a refresh token to terminate user session."""
     service = AuthService(db)
     revoked = service.logout(req.refresh_token)

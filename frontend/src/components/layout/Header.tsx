@@ -21,7 +21,7 @@ import {
 export const Header: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user: currentUser, logout } = useAuth();
+  const { user: currentUser, logout, refreshUser } = useAuth();
   const [backendOnline, setBackendOnline] = useState<boolean>(false);
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
@@ -194,7 +194,9 @@ export const Header: React.FC = () => {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         currentUser={currentUser}
-        onAuthChange={() => {}}
+        onAuthChange={() => {
+          void refreshUser();
+        }}
       />
     </header>
   );

@@ -2,6 +2,7 @@ import time
 import uuid
 import json
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request, status
@@ -9,15 +10,21 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from core.config import settings
 from core.security import validate_upload, sanitize_filename
-from core.permissions import require_admin, check_rate_limit, get_current_user_optional
+from core.permissions import require_admin, check_rate_limit, get_current_user
 from core.logging_config import logger
 from core.exceptions import AppException
+from db.database import get_db
 from api.auth import router as auth_router
 from api.v1.router import api_v1_router
 from services.health_service import health_service
+from services.scan_service import ScanService
+from services.finding_service import FindingService
+from services.remediation_service import RemediationService
+from services.report_service import ReportService
 from analyzer.dependency_parser import DependencyParser
 from analyzer.sca_scanner import sca_scanner
 
@@ -37,7 +44,6 @@ from models import (
     CvssCalculateResponse,
     MultiFileScanRequest
 )
-from storage import ScanStorage
 from analyzer.python_ast_scanner import PythonAstScanner
 from analyzer.javascript_scanner import JavaScriptScanner
 from analyzer.fix_validator import FixValidator
@@ -46,10 +52,18 @@ from analyzer.manageengine_client import manageengine_client
 from ml_engine.classifier import vulnerability_classifier
 from ml_engine.train_model import train_and_evaluate
 
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    settings.validate_production_secrets()
+    yield
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="AI-Driven Code Security Vulnerability Detection and Remediation API (Integrated with OSV.dev & ManageEngine)",
-    version=settings.APP_VERSION
+    version=settings.APP_VERSION,
+    lifespan=lifespan,
 )
 
 # Mount Authentication Router (Phase 1 legacy & v1)
@@ -122,16 +136,30 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         content={"detail": "An internal server error occurred."}
     )
 
-# CORS Middleware with restricted origins from environment configuration
+# Security Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("X-XSS-Protection", "0")
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    if settings.ENVIRONMENT.strip().lower() in ("production", "prod"):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+# CORS Middleware with restricted origins and explicit headers from configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-GitHub-Token", "X-Requested-With"],
 )
-
-storage = ScanStorage()
 
 @app.get("/health")
 def health_check():
@@ -156,137 +184,20 @@ def count_severities(findings: List[dict]) -> dict:
             counts[sev] += 1
     return counts
 
-@app.post("/api/scans", response_model=ScanResponseModel)
-def create_scan(req: ScanCreateRequest):
-    start_time = time.time()
-    scan_id = f"scan-{uuid.uuid4().hex[:8]}"
-    created_at = datetime.now(timezone.utc).isoformat()
-    lines_analyzed = len(req.sourceCode.splitlines())
-
-    # 1. AST Structural Analysis or Dependency Manifest SCA
-    is_manifest = DependencyParser.is_manifest_file(req.fileName or "") or req.language.lower() in ("manifest", "requirements", "toml", "lockfile")
-    
-    if is_manifest:
-        findings = sca_scanner.scan_manifest(req.fileName or "requirements.txt", req.sourceCode, scan_id)
-        ast_summary = {
-            "nodesCount": 0,
-            "functionsFound": 0,
-            "importsFound": [f.get("packageName") for f in findings if f.get("packageName")],
-            "sinksIdentified": 0
-        }
-    elif req.language.lower() == "python":
-        scanner = PythonAstScanner(req.sourceCode, file_name=req.fileName or "script.py")
-        findings, ast_summary = scanner.scan()
-    elif req.language.lower() in ("javascript", "typescript"):
-        scanner = JavaScriptScanner(req.sourceCode, file_name=req.fileName or "script.js")
-        findings, ast_summary = scanner.scan()
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported language: {req.language}")
-
-    # Tag AST findings
-    for f in findings:
-        if "scanId" not in f:
-            f["scanId"] = scan_id
-        if "detectionSource" not in f:
-            f["detectionSource"] = "AST"
-
-    # 2. Machine Learning Vulnerability Detection (Trained on OSV.dev + ManageEngine)
-    ml_detected_findings = []
-    if not is_manifest and req.options.enableAiClassifier and vulnerability_classifier.is_ready():
-        ml_findings = vulnerability_classifier.scan_code(req.sourceCode, req.language, req.fileName or "source_code")
-        for ml_f in ml_findings:
-            ml_f["scanId"] = scan_id
-            # Check if this line was already identified by AST
-            existing = next((f for f in findings if f.get("startLine") == ml_f.get("startLine")), None)
-            if existing:
-                # Corroborate finding: upgrade confidence and note hybrid confirmation
-                existing["confidence"] = round(min(0.99, max(existing.get("confidence", 0.9), ml_f["confidence"] + 0.05)), 2)
-                existing["detectionSource"] = "HYBRID_AST_AND_ML"
-                existing["description"] += " [Corroborated by AI/ML Ensemble Model trained on OSV.dev & ManageEngine data]"
-            else:
-                # Novel vulnerability spotted by ML model
-                findings.append(ml_f)
-                ml_detected_findings.append(ml_f)
-
-    # 3. OSV.dev Dependency / Package Vulnerability Scanning
-    # Rule: Do not infer that an imported package is vulnerable without dependency/version evidence.
-    osv_issues = []
-    if is_manifest:
-        # Populate osvFindings from manifest SCA findings
-        for f in findings:
-            if f.get("detectionSource") == "SCA_OSV":
-                osv_issues.append({
-                    "packageName": f.get("packageName", "unknown"),
-                    "version": f.get("version", "unknown"),
-                    "cve": f.get("cve", "UNKNOWN"),
-                    "title": f.get("title", ""),
-                    "severity": f.get("severity", "MEDIUM"),
-                    "advisoryId": f.get("advisoryId", f.get("cve")),
-                    "references": f.get("references", [])
-                })
-
-    # 4. ManageEngine Endpoint Central Security Baseline Rules
-    me_triggered = []
-    if req.options.enableRuleMatching:
-        me_rules = manageengine_client.check_code_against_rules(req.sourceCode, req.language)
-        for rule in me_rules:
-            me_triggered.append(rule)
-            # Avoid duplicate if AST already flagged the exact line
-            if not any(f["startLine"] == rule["line"] and f.get("cwe") == rule["cwe"] for f in findings):
-                findings.append({
-                    "id": f"me-{uuid.uuid4().hex[:6]}",
-                    "scanId": scan_id,
-                    "title": rule["title"],
-                    "category": "COMMAND_INJECTION" if rule["cwe"] == "CWE-78" else "UNSAFE_DESERIALIZATION",
-                    "severity": rule["severity"],
-                    "cwe": rule["cwe"],
-                    "owaspCategory": "A01:2021-Broken Access Control" if rule["cwe"] == "CWE-22" else "A03:2021-Injection",
-                    "file": req.fileName or "source_code",
-                    "startLine": rule["line"],
-                    "endLine": rule["line"],
-                    "confidence": 0.95,
-                    "description": f"Violation of ManageEngine Endpoint Central Security Rule: {rule['recommendation']}",
-                    "evidence": rule["evidence"],
-                    "impact": f"Endpoint exploitability corresponding to {rule['cve']}.",
-                    "dataFlow": [
-                        {
-                            "step": 1,
-                            "label": f"ManageEngine Rule Violation ({rule['ruleId']})",
-                            "codeSnippet": rule["evidence"],
-                            "line": rule["line"],
-                            "type": "SINK",
-                            "description": f"Flagged by ManageEngine Endpoint Security baseline ({rule['product']})"
-                        }
-                    ],
-                    "vulnerableCode": rule["evidence"],
-                    "remediationCode": f"# Remediate per ManageEngine baseline\n{rule['recommendation']}",
-                    "remediationExplanation": rule["recommendation"],
-                    "bestPractices": [
-                        "Enforce ManageEngine Endpoint Security configuration baselines.",
-                        "Prevent execution of unquoted service paths and untrusted serialized payloads.",
-                        "Follow NIST SP 800-218 Secure Software Development Framework."
-                    ],
-                    "references": [rule["reference"]],
-                    "remediationStatus": "OPEN",
-                    "validationStatus": "NOT_VALIDATED",
-                    "detectionSource": "MANAGEENGINE_BASELINE",
-                    "cve": rule["cve"]
-                })
-
-    duration_ms = int((time.time() - start_time) * 1000)
-    highest_severity = calculate_highest_severity(findings)
-    findings_count = count_severities(findings)
-
-    ml_info = vulnerability_classifier.get_model_info()
-    ml_analysis = {
-        "modelName": ml_info.get("modelName", "SecureCode-VulnNet"),
-        "version": ml_info.get("version", "2.0.0"),
-        "accuracy": ml_info.get("accuracy", 90.48),
-        "precision": ml_info.get("precision", 96.30),
-        "f1Score": ml_info.get("f1Score", 89.66),
-        "totalDatasetSamples": ml_info.get("totalSamples", 313),
-        "datasetSources": ml_info.get("datasetSources", {}),
-        "activeConnectors": [
+def _build_live_ml_analysis(include_connectors: bool = True) -> Dict[str, Any]:
+    info = vulnerability_classifier.get_model_info()
+    payload: Dict[str, Any] = {
+        "modelName": info.get("modelName", "SecureCode-VulnNet"),
+        "version": info.get("version", "2.1.0"),
+        "accuracy": info.get("accuracy", 0.0),
+        "precision": info.get("precision", 0.0),
+        "recall": info.get("recall", 0.0),
+        "f1Score": info.get("f1Score", info.get("macroF1", 0.0)),
+        "totalDatasetSamples": info.get("totalSamples", 0),
+        "datasetSources": info.get("datasetSources", {}),
+    }
+    if include_connectors:
+        payload["activeConnectors"] = [
             {
                 "name": "OSV.dev REST API",
                 "url": "https://osv.dev/",
@@ -300,40 +211,56 @@ def create_scan(req: ScanCreateRequest):
                 "status": "CONNECTED"
             }
         ]
-    }
+    return payload
 
-    scan_result = {
-        "id": scan_id,
-        "projectName": req.projectName,
-        "fileName": req.fileName or "source_code",
-        "language": req.language,
-        "createdAt": created_at,
-        "completedAt": datetime.now(timezone.utc).isoformat(),
-        "status": "COMPLETED",
-        "durationMs": max(duration_ms, 120),
-        "linesAnalyzed": lines_analyzed,
-        "sourceCode": req.sourceCode,
-        "highestSeverity": highest_severity,
-        "findingsCount": findings_count,
-        "findings": findings,
-        "astSummary": ast_summary,
-        "mlAnalysis": ml_analysis,
-        "osvFindings": osv_issues,
-        "manageEngineRules": me_triggered,
-        "isDemo": False
-    }
 
-    storage.save_scan(scan_result)
-    return scan_result
+@app.post("/api/scans", response_model=ScanResponseModel)
+def create_scan(
+    req: ScanCreateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _=Depends(check_rate_limit),
+):
+    service = ScanService(db)
+    result = service.execute_scan(
+        source_code=req.sourceCode,
+        language=req.language,
+        file_name=req.fileName or "source_code",
+        project_name=req.projectName or "Direct Scan",
+        user_id=current_user["id"],
+        enable_ai=req.options.enableAiClassifier if req.options else True,
+        enable_rules=req.options.enableRuleMatching if req.options else True,
+    )
+    result["sourceCode"] = req.sourceCode
+    result["mlAnalysis"] = _build_live_ml_analysis(include_connectors=True)
+    result["isDemo"] = False
+    return result
 
 @app.post("/api/scans/upload")
 async def upload_file_scan(
     projectName: str = Form(...),
     language: str = Form(...),
     file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
     _=Depends(check_rate_limit)
 ):
-    content = await file.read()
+    max_bytes = settings.MAX_UPLOAD_SIZE_BYTES
+    chunks = []
+    total_read = 0
+    while True:
+        chunk = await file.read(65536)
+        if not chunk:
+            break
+        total_read += len(chunk)
+        if total_read > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File size exceeds the maximum allowed limit ({max_bytes} bytes)."
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
+
     try:
         safe_name = validate_upload(file.filename or "", content)
     except ValueError as e:
@@ -348,89 +275,89 @@ async def upload_file_scan(
         sourceCode=source_code,
         fileName=safe_name
     )
-    return create_scan(req)
+    return create_scan(req=req, current_user=current_user, db=db)
 
 @app.get("/api/scans")
-def list_scans():
-    return storage.list_scans()
+def list_scans(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    service = ScanService(db)
+    is_admin = current_user.get("role", "").upper() == "ADMIN"
+    user_id = None if is_admin else current_user["id"]
+    items, _ = service.list(user_id=user_id, skip=0, limit=100)
+    return items
 
 @app.get("/api/scans/{scan_id}", response_model=ScanResponseModel)
-def get_scan(scan_id: str):
-    scan = storage.get_scan(scan_id)
-    if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
+def get_scan(
+    scan_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    service = ScanService(db)
+    is_admin = current_user.get("role", "").upper() == "ADMIN"
+    scan = service.get_by_id(scan_id=scan_id, user_id=current_user["id"], is_admin=is_admin)
+    scan.setdefault("osvFindings", [f for f in scan.get("findings", []) if f.get("detectionSource") in ("SCA_OSV", "OSV_DATABASE")])
+    scan.setdefault("manageEngineRules", [])
+    scan.setdefault("isDemo", False)
     return scan
 
 @app.get("/api/scans/{scan_id}/findings")
-def get_scan_findings(scan_id: str):
-    scan = storage.get_scan(scan_id)
-    if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    return scan["findings"]
+def get_scan_findings(
+    scan_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    service = FindingService(db)
+    is_admin = current_user.get("role", "").upper() == "ADMIN"
+    findings, _ = service.list_findings(scan_id=scan_id, skip=0, limit=10000, user_id=current_user["id"], is_admin=is_admin)
+    return findings
 
 @app.get("/api/scans/{scan_id}/report")
-def get_scan_report(scan_id: str):
-    scan = storage.get_scan(scan_id)
-    if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
-
-    total_findings = scan["findingsCount"].get("total", 0)
-    critical_count = scan["findingsCount"].get("critical", 0)
-    high_count = scan["findingsCount"].get("high", 0)
-
-    risk_score = min(100, critical_count * 30 + high_count * 15 + (total_findings - critical_count - high_count) * 5)
-
-    recommendations = [
-        "Eliminate raw string concatenation in database queries by enforcing prepared statements.",
-        "Refactor system command execution to avoid shell execution and enforce strict argument arrays.",
-        "Verify imported packages against OSV.dev and update vulnerable third-party dependencies.",
-        "Comply with ManageEngine Endpoint Security baselines by storing secrets in environment variables.",
-        "Validate input file names using basename and canonical path containment."
-    ]
-
+def get_scan_report(
+    scan_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    is_admin = current_user.get("role", "").upper() == "ADMIN"
+    scan = ScanService(db).get_by_id(scan_id=scan_id, user_id=current_user["id"], is_admin=is_admin)
+    report = ReportService(db).generate_report(scan_id=scan_id, user_id=current_user["id"], is_admin=is_admin)
+    scan.setdefault("osvFindings", [])
+    scan.setdefault("manageEngineRules", [])
+    scan.setdefault("isDemo", False)
     return {
         "scan": scan,
-        "executiveSummary": f"Security audit completed for {scan['projectName']} ({scan['fileName']}). Identified {total_findings} potential vulnerability findings, with {critical_count} Critical and {high_count} High severity items requiring immediate remediation.",
-        "riskScore": risk_score,
-        "recommendations": recommendations,
-        "generatedAt": datetime.now(timezone.utc).isoformat()
+        "executiveSummary": report["executiveSummary"],
+        "riskScore": report["riskScore"],
+        "recommendations": report["recommendations"],
+        "generatedAt": report["generatedAt"],
     }
 
 @app.post("/api/scans/{scan_id}/validate-fix", response_model=FixValidationResponse)
-def validate_fix(scan_id: str, req: FixValidationRequest):
-    scan = storage.get_scan(scan_id)
-    if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
-
-    finding = next((f for f in scan["findings"] if f["id"] == req.findingId), None)
-    if not finding:
-        raise HTTPException(status_code=404, detail="Finding not found")
-
-    if scan["language"] == "python":
-        passed, status, msg = FixValidator.validate_python_fix(scan["sourceCode"], req.proposedCode, finding)
-    else:
-        passed, status, msg = FixValidator.validate_javascript_fix(scan["sourceCode"], req.proposedCode, finding)
-
-    storage.update_finding_validation(req.findingId, status, msg)
-
-    refreshed_scan = storage.get_scan(scan_id)
-    remaining = len([f for f in refreshed_scan["findings"] if f.get("validationStatus") != "VALIDATION_PASSED"])
-
-    return FixValidationResponse(
-        findingId=req.findingId,
-        status=status,
-        passed=passed,
-        message=msg,
-        verifiedAt=datetime.now(timezone.utc).isoformat(),
-        remainingFindingsCount=remaining
+def validate_fix(
+    scan_id: str,
+    req: FixValidationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    is_admin = current_user.get("role", "").upper() == "ADMIN"
+    res = RemediationService(db).validate_code_fix(
+        scan_id=scan_id,
+        finding_id=req.findingId,
+        proposed_code=req.proposedCode,
+        user_id=current_user["id"],
+        is_admin=is_admin,
     )
+    return FixValidationResponse(**res)
 
 @app.delete("/api/scans/{scan_id}")
-def delete_scan(scan_id: str):
-    scan = storage.get_scan(scan_id)
-    if not scan:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    storage.delete_scan(scan_id)
+def delete_scan(
+    scan_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    is_admin = current_user.get("role", "").upper() == "ADMIN"
+    ScanService(db).delete(scan_id=scan_id, user_id=current_user["id"], is_admin=is_admin)
     return {"message": "Scan deleted successfully", "id": scan_id}
 
 # === Machine Learning & Dataset API Endpoints ===
@@ -463,7 +390,11 @@ class ScaScanRequest(BaseModel):
     projectName: Optional[str] = "Dependency Manifest Scan"
 
 @app.post("/api/sca/scan")
-def scan_dependency_manifest(req: ScaScanRequest, _=Depends(check_rate_limit)):
+def scan_dependency_manifest(
+    req: ScaScanRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _=Depends(check_rate_limit),
+):
     """Dedicated Software Composition Analysis (SCA) endpoint for dependency manifests."""
     scan_id = f"sca-{uuid.uuid4().hex[:8]}"
     findings = sca_scanner.scan_manifest(req.fileName, req.content, scan_id)
@@ -482,7 +413,11 @@ class PredictSnippetRequest(BaseModel):
     language: Optional[str] = "python"
 
 @app.post("/api/ml/predict")
-def predict_code_snippet(req: PredictSnippetRequest):
+def predict_code_snippet(
+    req: PredictSnippetRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _=Depends(check_rate_limit),
+):
     """Real-time inference on a code snippet."""
     res = vulnerability_classifier.predict_snippet(req.codeSnippet)
     return res
@@ -492,17 +427,22 @@ def get_dataset_statistics():
     """Returns dataset provenance, distribution, and connector information."""
     info = vulnerability_classifier.get_model_info()
     return {
-        "totalSamples": info.get("totalSamples", 313),
+        "totalSamples": info.get("totalSamples", 0),
         "datasetSources": info.get("datasetSources", {}),
         "cweDistribution": info.get("cweDistribution", {}),
         "activeConnectors": info.get("activeConnectors", []),
-        "accuracy": info.get("accuracy", 90.48),
-        "precision": info.get("precision", 96.30),
-        "f1Score": info.get("f1Score", 89.66)
+        "accuracy": info.get("accuracy", 0.0),
+        "precision": info.get("precision", 0.0),
+        "recall": info.get("recall", 0.0),
+        "f1Score": info.get("f1Score", 0.0),
     }
 
 @app.post("/api/osv/query")
-def query_osv_package(req: OsvQueryRequest):
+def query_osv_package(
+    req: OsvQueryRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _=Depends(check_rate_limit),
+):
     """Direct lookup in Google's OSV.dev vulnerability database."""
     results = osv_client.query_package(req.packageName, req.ecosystem or "PyPI", req.version)
     return {
@@ -528,7 +468,11 @@ def get_manageengine_advisories():
 # === Advanced Examiner, AST Visualizer, Benchmark & CVSS Endpoints ===
 
 @app.post("/api/ast/parse")
-def parse_ast_tree(req: AstParseRequest):
+def parse_ast_tree(
+    req: AstParseRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _=Depends(check_rate_limit),
+):
     """Parses source code and returns a hierarchical AST node graph with security role annotations."""
     if req.language.lower() == "python":
         scanner = PythonAstScanner(req.sourceCode, file_name=req.fileName or "source.py")
@@ -726,7 +670,7 @@ BENCHMARK_SUITE = [
         "code": "obj['__proto__'][prop] = maliciousPayload;",
         "language": "javascript",
         "isVulnerable": True,
-        "category": "COMMAND_INJECTION",
+        "category": "PROTOTYPE_POLLUTION",
         "cwe": "CWE-1321"
     },
     {
@@ -734,40 +678,34 @@ BENCHMARK_SUITE = [
         "code": "const safeMap = Object.create(null); safeMap[prop] = payload;",
         "language": "javascript",
         "isVulnerable": False,
-        "category": "COMMAND_INJECTION",
+        "category": "PROTOTYPE_POLLUTION",
         "cwe": "CWE-1321"
     }
 ]
 
 @app.post("/api/benchmark/run", response_model=BenchmarkRunResponse)
-def run_academic_benchmark():
-    """Executes the standard examiner benchmark suite across all CWE categories and calculates live metrics."""
+def run_academic_benchmark(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    _=Depends(check_rate_limit),
+):
+    """Executes the standard examiner benchmark suite through HybridScanner and calculates live metrics."""
+    from analyzer.hybrid_scanner import HybridScanner
     results = []
     tp = fp = tn = fn = 0
     total_latency = 0.0
 
     for item in BENCHMARK_SUITE:
-        t0 = time.time()
-        source = "AST"
-        is_vuln_pred = False
+        t0 = time.perf_counter()
+        scanner = HybridScanner(
+            source_code=item["code"],
+            language=item["language"],
+            file_name="benchmark.py" if item["language"] == "python" else "benchmark.js",
+        )
+        findings, _, _ = scanner.scan()
+        is_vuln_pred = len(findings) > 0
+        source = findings[0].get("detectionSource", "HYBRID_ENGINE") if findings else "HYBRID_ENGINE"
 
-        if item["language"] == "python":
-            scanner = PythonAstScanner(item["code"])
-            findings, _ = scanner.scan()
-            if findings:
-                is_vuln_pred = True
-            elif vulnerability_classifier.is_ready():
-                pred = vulnerability_classifier.predict_snippet(item["code"])
-                if pred.get("isVulnerable", False) and pred.get("confidence", 0) > 0.6:
-                    is_vuln_pred = True
-                    source = "ML_MODEL"
-        else:
-            scanner = JavaScriptScanner(item["code"])
-            findings, _ = scanner.scan()
-            if findings:
-                is_vuln_pred = True
-
-        latency_ms = (time.time() - t0) * 1000.0
+        latency_ms = (time.perf_counter() - t0) * 1000.0
         total_latency += latency_ms
 
         ground_truth = item["isVulnerable"]
@@ -794,11 +732,11 @@ def run_academic_benchmark():
         })
 
     total_tests = len(BENCHMARK_SUITE)
-    accuracy = round(((tp + tn) / total_tests) * 100.0, 2)
-    precision = round((tp / (tp + fp) * 100.0) if (tp + fp) > 0 else 100.0, 2)
-    recall = round((tp / (tp + fn) * 100.0) if (tp + fn) > 0 else 100.0, 2)
+    accuracy = round(((tp + tn) / total_tests) * 100.0, 2) if total_tests > 0 else 0.0
+    precision = round((tp / (tp + fp) * 100.0) if (tp + fp) > 0 else 0.0, 2)
+    recall = round((tp / (tp + fn) * 100.0) if (tp + fn) > 0 else 0.0, 2)
     f1 = round((2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0, 2)
-    avg_latency = round(total_latency / total_tests, 2)
+    avg_latency = round(total_latency / total_tests, 2) if total_tests > 0 else 0.0
 
     return BenchmarkRunResponse(
         totalTests=total_tests,
@@ -816,8 +754,14 @@ def run_academic_benchmark():
     )
 
 @app.post("/api/scans/project", response_model=ScanResponseModel)
-def scan_project_multi_file(req: MultiFileScanRequest):
+def scan_project_multi_file(
+    req: MultiFileScanRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    _=Depends(check_rate_limit),
+):
     """Scans multiple files in a repository or module, compiling project-wide vulnerability findings."""
+    from db.repositories.scan_repository import ScanRepository
     all_findings = []
     total_lines = 0
     all_imports = []
@@ -857,46 +801,75 @@ def scan_project_multi_file(req: MultiFileScanRequest):
     duration_ms = max(int((time.time() - start_time) * 1000), 150)
     highest_severity = calculate_highest_severity(all_findings)
     findings_count = count_severities(all_findings)
+    risk_score = min(100, findings_count.get("critical", 0) * 30 + findings_count.get("high", 0) * 15 + findings_count.get("medium", 0) * 7 + findings_count.get("low", 0) * 2)
+    ast_summary = {
+        "nodesCount": total_nodes,
+        "functionsFound": total_functions,
+        "importsFound": list(set(all_imports)),
+        "sinksIdentified": total_sinks,
+    }
+    ml_analysis = _build_live_ml_analysis(include_connectors=False)
+    combined_source = "\n\n".join(combined_source_parts)
 
-    scan_result = {
+    repo = ScanRepository(db)
+    record = repo.create_scan(
+        scan_id=scan_id,
+        project_name=req.projectName,
+        file_name=f"{len(req.files)} project files",
+        language="multi-language",
+        source_code=combined_source,
+        user_id=current_user["id"],
+    )
+    repo.complete_scan(
+        scan_id=scan_id,
+        status="COMPLETED",
+        duration_ms=duration_ms,
+        lines_analyzed=total_lines,
+        highest_severity=highest_severity,
+        risk_score=risk_score,
+        findings_count=findings_count,
+        ast_summary=ast_summary,
+        ml_analysis=ml_analysis,
+    )
+    if all_findings:
+        repo.add_findings(scan_id=scan_id, findings=all_findings)
+
+    return {
         "id": scan_id,
         "projectName": req.projectName,
         "fileName": f"{len(req.files)} project files",
-        "language": "python",
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "language": "multi-language",
+        "createdAt": record.created_at.isoformat(),
         "completedAt": datetime.now(timezone.utc).isoformat(),
         "status": "COMPLETED",
         "durationMs": duration_ms,
         "linesAnalyzed": total_lines,
-        "sourceCode": "\n\n".join(combined_source_parts),
+        "sourceCode": combined_source,
         "highestSeverity": highest_severity,
         "findingsCount": findings_count,
         "findings": all_findings,
-        "astSummary": {
-            "nodesCount": total_nodes,
-            "functionsFound": total_functions,
-            "importsFound": list(set(all_imports)),
-            "sinksIdentified": total_sinks
-        },
-        "mlAnalysis": {
-            "modelName": "SecureCode-VulnNet",
-            "version": "2.0.0",
-            "accuracy": 90.48,
-            "precision": 96.30,
-            "f1Score": 89.66,
-            "totalDatasetSamples": 313
-        },
+        "astSummary": ast_summary,
+        "mlAnalysis": ml_analysis,
         "osvFindings": [],
         "manageEngineRules": [],
-        "isDemo": False
+        "isDemo": False,
     }
-
-    storage.save_scan(scan_result)
-    return scan_result
 
 @app.get("/api/examiner/viva-qa")
 def get_viva_defense_bank():
-    """Curated academic viva voce defense question bank with theoretical backing and formulas."""
+    """Curated academic viva voce defense question bank grounded in live trained ML & dataset metrics."""
+    info = vulnerability_classifier.get_model_info()
+    acc = info.get("accuracy", 0.0)
+    prec = info.get("precision", 0.0)
+    rec = info.get("recall", 0.0)
+    f1 = info.get("f1Score", 0.0)
+    selected_bin = info.get("selectedBinaryModel", "Calibrated Classifier")
+    total_samples = info.get("totalSamples", 0)
+    sources = info.get("datasetSources", {})
+    osv_n = sources.get("OSV.dev (Google / OpenSSF)", 0)
+    me_n = sources.get("ManageEngine Endpoint Security (CVEs & Baselines)", 0)
+    std_n = sources.get("Secure Reference Standards", 0)
+
     return {
         "institution": "Panipat Institute of Engineering & Technology (PIET), Kurukshetra University",
         "degree": "B.Tech Computer Science & Engineering (Artificial Intelligence & Machine Learning)",
@@ -910,8 +883,8 @@ def get_viva_defense_bank():
             {
                 "id": "q1",
                 "category": "AI / ML Architecture",
-                "question": "Why did you choose an ensemble of Random Forest and Logistic Regression instead of calling a Cloud LLM (like GPT-4 or Claude)?",
-                "answer": "1. Zero Code Privacy Leaks: Enterprise code cannot be sent to third-party cloud LLM APIs.\n2. Deterministic & Zero Hallucination: LLMs suffer from stochastic hallucination and can generate syntactically incorrect code. AST + Calibrated ML provides mathematically bounded predictions.\n3. Latency: Local ML inference takes ~15-20 milliseconds, whereas LLM APIs take 2-5 seconds.\n4. Offline Execution: The platform can run in air-gapped secure development environments.",
+                "question": "Why did you choose supervised TF-IDF + Security Sink models (Logistic Regression / Linear SVM / Random Forest) instead of calling a Cloud LLM (like GPT-4 or Claude)?",
+                "answer": f"1. Zero Code Privacy Leaks: Enterprise code cannot be sent to third-party cloud LLM APIs.\n2. Deterministic & Zero Hallucination: LLMs suffer from stochastic hallucination and can generate syntactically incorrect code. AST + {selected_bin} provides mathematically bounded predictions.\n3. Latency: Local ML inference runs in milliseconds, whereas LLM APIs take 2-5 seconds.\n4. Offline Execution: The platform can run in air-gapped secure development environments.",
                 "formula": "Inference Latency: T_{ML} \\approx 15ms \\ll T_{LLM} \\approx 2500ms"
             },
             {
@@ -931,16 +904,16 @@ def get_viva_defense_bank():
             {
                 "id": "q4",
                 "category": "ML Evaluation Metrics",
-                "question": "How do you evaluate false positives versus false negatives? What are your Precision and Recall?",
-                "answer": "In application security, False Positives (alert fatigue) and False Negatives (missed critical vulnerabilities) are both dangerous. We achieved:\n- Accuracy: 90.48%\n- Precision: 96.30% (High precision ensures developers trust the alerts)\n- Recall: 83.87% (Captures the vast majority of real sinks)\n- F1-Score: 89.66% (Harmonic mean balancing precision and recall).",
+                "question": "How do you evaluate false positives versus false negatives? What are your live Test Precision and Recall?",
+                "answer": f"In application security, False Positives (alert fatigue) and False Negatives (missed critical vulnerabilities) are both dangerous. Evaluated strictly on the untouched group-disjoint Test split ({selected_bin}), we achieved:\n- Accuracy: {acc:.2f}%\n- Precision: {prec:.2f}%\n- Recall: {rec:.2f}%\n- F1-Score: {f1:.2f}%.",
                 "formula": "\\text{Precision} = \\frac{TP}{TP + FP}, \\quad \\text{Recall} = \\frac{TP}{TP + FN}, \\quad F_1 = 2 \\times \\frac{\\text{Precision} \\times \\text{Recall}}{\\text{Precision} + \\text{Recall}}"
             },
             {
                 "id": "q5",
                 "category": "External Datasets",
                 "question": "What are Google OSV.dev and ManageEngine Endpoint Central, and how are they integrated?",
-                "answer": "1. OSV.dev (Google / OpenSSF): A distributed open-source vulnerability database. We query it via REST API for Software Composition Analysis (SCA) to check imported dependencies for known CVEs.\n2. ManageEngine Endpoint Central: Ingests enterprise endpoint threat baselines (e.g., CVE-2021-44515, CVE-2020-10189, unquoted service path execution) to ground remediation in production hardening standards.",
-                "formula": "\\text{Dataset} = D_{\\text{OSV}} (123) \\cup D_{\\text{ManageEngine}} (157) \\cup D_{\\text{Standards}} (144)"
+                "answer": f"1. OSV.dev (Google / OpenSSF): A distributed open-source vulnerability database queried via REST API for Software Composition Analysis (SCA).\n2. ManageEngine Endpoint Central: Ingests enterprise endpoint threat baselines (e.g., CVE-2021-44515, CVE-2020-10189) across {total_samples} verified samples.",
+                "formula": f"\\text{{Dataset ({total_samples})}} = D_{{\\text{{OSV}}}} ({osv_n}) \\cup D_{{\\text{{ManageEngine}}}} ({me_n}) \\cup D_{{\\text{{Standards}}}} ({std_n})"
             },
             {
                 "id": "q6",

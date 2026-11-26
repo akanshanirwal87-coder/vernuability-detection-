@@ -26,7 +26,7 @@ class RemediationService:
         if not scan:
             raise EntityNotFoundException("Scan", scan_id)
 
-        if scan.user_id and user_id and not is_admin and scan.user_id != user_id:
+        if not is_admin and (not user_id or not scan.user_id or scan.user_id != user_id):
             raise AuthorizationException("Access denied: You cannot modify this scan's findings.")
 
         finding = self.repo.get_finding_by_id(finding_id)
@@ -53,7 +53,7 @@ class RemediationService:
         self.repo.update_finding_validation(finding_id, status, msg)
 
         # Count remaining open findings
-        open_findings, _ = self.repo.get_findings_paginated(scan_id, limit=200)
+        open_findings, _ = self.repo.get_findings_paginated(scan_id, limit=10000)
         remaining = len([f for f in open_findings if f.remediation_status != "VALIDATION_PASSED"])
 
         return {

@@ -38,12 +38,14 @@ class AuthService:
         if existing:
             raise ConflictException(f"User with email '{email}' already exists.")
 
+        # Public self-registration always assigns least-privilege USER role.
+        assigned_role = "USER"
         hashed_pwd = hash_password(password)
         user = self.user_repo.create_user(
             name=name,
             email=email,
             password_hash=hashed_pwd,
-            role=role.upper(),
+            role=assigned_role,
         )
 
         return self._generate_token_response(user)

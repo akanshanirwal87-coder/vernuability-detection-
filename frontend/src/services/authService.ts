@@ -14,13 +14,18 @@ export class AuthService {
   }
 
   static async register(data: RegisterRequest): Promise<UserProfile> {
-    const res = await api.post<ApiResponse<UserProfile>>('/api/v1/auth/register', {
+    const res = await api.post<ApiResponse<AuthResponseData>>('/api/v1/auth/register', {
       name: data.name,
       email: data.email,
       password: data.password,
     });
-    // Automatically log in after registration
-    return await this.login({ email: data.email, password: data.password });
+    const payload = res.data.data;
+    localStorage.setItem('securecode_access_token', payload.access_token);
+    if (payload.refresh_token) {
+      localStorage.setItem('securecode_refresh_token', payload.refresh_token);
+    }
+    localStorage.setItem('securecode_user', JSON.stringify(payload.user));
+    return payload.user;
   }
 
   static async logout(): Promise<void> {
@@ -59,7 +64,22 @@ export class AuthService {
   }
 
   static isAuthenticated(): boolean {
-    return !!localStorage.getItem('securecode_access_token');
+    const token = localStorage.getItem('securecode_access_token');
+    if (!token) return false;
+    try {
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+        const payload = JSON.parse(payloadJson);
+        if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) {
+          // Expired access token: remain eligible only if a refresh token can renew it
+          return !!localStorage.getItem('securecode_refresh_token');
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   static isAdmin(): boolean {

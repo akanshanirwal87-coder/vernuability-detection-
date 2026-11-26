@@ -1,6 +1,6 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -69,37 +69,45 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       const storedRefreshToken = localStorage.getItem('securecode_refresh_token');
-      if (storedRefreshToken) {
-        try {
-          const refreshRes = await axios.post<{
-            success: boolean;
-            data: { access_token: string; refresh_token?: string };
-          }>(`${API_BASE_URL}/api/v1/auth/refresh`, {
-            refresh_token: storedRefreshToken,
-          });
+      if (!storedRefreshToken) {
+        isRefreshing = false;
+        const authErr = new Error('Authentication required. Please sign in to continue.');
+        processQueue(authErr, null);
+        localStorage.removeItem('securecode_access_token');
+        localStorage.removeItem('securecode_user');
+        window.dispatchEvent(new Event('securecode:session-expired'));
+        return Promise.reject(authErr);
+      }
 
-          const newAccessToken = refreshRes.data.data.access_token;
-          localStorage.setItem('securecode_access_token', newAccessToken);
-          if (refreshRes.data.data.refresh_token) {
-            localStorage.setItem('securecode_refresh_token', refreshRes.data.data.refresh_token);
-          }
+      try {
+        const refreshRes = await axios.post<{
+          success: boolean;
+          data: { access_token: string; refresh_token?: string };
+        }>(`${API_BASE_URL}/api/v1/auth/refresh`, {
+          refresh_token: storedRefreshToken,
+        });
 
-          if (originalRequest.headers) {
-            originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-          }
-
-          processQueue(null, newAccessToken);
-          return api(originalRequest);
-        } catch (refreshErr) {
-          processQueue(refreshErr, null);
-          localStorage.removeItem('securecode_access_token');
-          localStorage.removeItem('securecode_refresh_token');
-          localStorage.removeItem('securecode_user');
-          window.dispatchEvent(new Event('securecode:session-expired'));
-          return Promise.reject(refreshErr);
-        } finally {
-          isRefreshing = false;
+        const newAccessToken = refreshRes.data.data.access_token;
+        localStorage.setItem('securecode_access_token', newAccessToken);
+        if (refreshRes.data.data.refresh_token) {
+          localStorage.setItem('securecode_refresh_token', refreshRes.data.data.refresh_token);
         }
+
+        if (originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        }
+
+        processQueue(null, newAccessToken);
+        return api(originalRequest);
+      } catch (refreshErr) {
+        processQueue(refreshErr, null);
+        localStorage.removeItem('securecode_access_token');
+        localStorage.removeItem('securecode_refresh_token');
+        localStorage.removeItem('securecode_user');
+        window.dispatchEvent(new Event('securecode:session-expired'));
+        return Promise.reject(refreshErr);
+      } finally {
+        isRefreshing = false;
       }
     }
 

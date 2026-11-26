@@ -3,8 +3,11 @@ from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 
 from db.models import Scan, ScanJob
+from db.repositories.project_repository import ProjectRepository
 from workers.scan_tasks import scan_repository_task
-from core.exceptions import AppException
+from integrations.repository_validator import RepositoryValidator, RepositoryValidationError
+from core.exceptions import ValidationException, EntityNotFoundException, AuthorizationException
+from core.security import encrypt_secret
 from core.logging_config import logger
 
 
@@ -26,21 +29,37 @@ class ScanQueueService:
     ) -> Dict[str, Any]:
         """
         Idempotently enqueue a repository scan job.
-        If an active job already exists for the same repo and ref, returns the active job.
+        If an active job already exists for the same user, repo, and ref, returns the active job.
         """
-        target_ref = commit_sha or branch or "main"
+        try:
+            RepositoryValidator.validate_url(repository_url)
+            if branch:
+                branch = RepositoryValidator.validate_branch(branch)
+        except RepositoryValidationError as e:
+            raise ValidationException(str(e))
 
-        # 1. Idempotency Check: check for existing in-flight job
+        if project_id:
+            project = ProjectRepository(self.db).get(project_id)
+            if not project:
+                raise EntityNotFoundException("Project", project_id)
+            if user_id and project.user_id != user_id:
+                raise AuthorizationException("Access denied: You do not own the target project.")
+
+        target_ref = commit_sha or branch or "main"
+        expected_file_name = f"{repository_url} ({target_ref})"
+
+        # 1. User-scoped exact Idempotency Check: check for existing in-flight job
         if not force:
-            active_scan = (
-                self.db.query(Scan)
-                .filter(
-                    Scan.file_name.like(f"%{repository_url}%"),
-                    Scan.status.in_(["PENDING", "QUEUED", "RUNNING"])
-                )
-                .order_by(Scan.created_at.desc())
-                .first()
+            query = self.db.query(Scan).filter(
+                Scan.file_name == expected_file_name,
+                Scan.status.in_(["PENDING", "QUEUED", "RUNNING"]),
             )
+            if user_id:
+                query = query.filter(Scan.user_id == user_id)
+            else:
+                query = query.filter(Scan.user_id.is_(None))
+
+            active_scan = query.order_by(Scan.created_at.desc()).first()
             if active_scan:
                 active_job = self.db.query(ScanJob).filter(ScanJob.scan_id == active_scan.id).first()
                 job_id = active_job.id if active_job else f"job-{active_scan.id}"
@@ -66,7 +85,7 @@ class ScanQueueService:
             project_id=project_id,
             user_id=user_id,
             project_name=repository_url.split("/")[-1].replace(".git", ""),
-            file_name=f"{repository_url} ({target_ref})",
+            file_name=expected_file_name,
             language="repository",
             status="QUEUED",
         )
@@ -81,33 +100,27 @@ class ScanQueueService:
         self.db.add(job_record)
         self.db.commit()
 
-        # 3. Dispatch to Celery background worker
+        # Encrypt token before serialization to Celery broker
+        encrypted_token = encrypt_secret(github_token)
+
+        # 3. Dispatch to Celery background worker pinned to task_id=job_id
+        task_kwargs = {
+            "job_id": job_id,
+            "scan_id": scan_id,
+            "repository_url": repository_url,
+            "branch": branch,
+            "commit_sha": commit_sha,
+            "project_id": project_id,
+            "user_id": user_id,
+            "github_token": encrypted_token,
+        }
         try:
-            scan_repository_task.delay(
-                job_id=job_id,
-                scan_id=scan_id,
-                repository_url=repository_url,
-                branch=branch,
-                commit_sha=commit_sha,
-                project_id=project_id,
-                user_id=user_id,
-                github_token=github_token,
-            )
+            scan_repository_task.apply_async(kwargs=task_kwargs, task_id=job_id)
             logger.info("Successfully enqueued scan task to Celery: job=%s, scan=%s", job_id, scan_id)
         except Exception as e:
             logger.warning("Celery dispatch failed (%s); falling back to synchronous execution", str(e))
-            # Fallback for standalone dev environments without active Redis
             try:
-                scan_repository_task(
-                    job_id=job_id,
-                    scan_id=scan_id,
-                    repository_url=repository_url,
-                    branch=branch,
-                    commit_sha=commit_sha,
-                    project_id=project_id,
-                    user_id=user_id,
-                    github_token=github_token,
-                )
+                scan_repository_task(**task_kwargs)
             except Exception as sync_exc:
                 logger.error("Synchronous scan fallback also failed: %s", str(sync_exc))
 

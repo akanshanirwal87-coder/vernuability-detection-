@@ -1,6 +1,7 @@
 import os
 import re
 import hmac
+import base64
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,7 @@ from typing import Optional, Dict, Any
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
+from cryptography.fernet import Fernet, InvalidToken
 
 from core.config import settings
 
@@ -78,6 +80,34 @@ def generate_refresh_token() -> str:
 def hash_token(token: str) -> str:
     """Compute SHA-256 hash of a refresh token for safe database persistence."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _get_fernet() -> Fernet:
+    key_bytes = hashlib.sha256(settings.JWT_SECRET_KEY.encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(key_bytes))
+
+
+def encrypt_secret(plaintext: Optional[str]) -> Optional[str]:
+    """Encrypt transient sensitive values (e.g., queued repo tokens) with authenticated Fernet."""
+    if not plaintext:
+        return None
+    if plaintext.startswith("enc:v1:"):
+        return plaintext
+    token = _get_fernet().encrypt(plaintext.encode("utf-8")).decode("ascii")
+    return f"enc:v1:{token}"
+
+
+def decrypt_secret(ciphertext: Optional[str]) -> Optional[str]:
+    """Decrypt Fernet-encrypted values; passes through plaintext values when not prefixed."""
+    if not ciphertext:
+        return None
+    if not ciphertext.startswith("enc:v1:"):
+        return ciphertext
+    raw = ciphertext[len("enc:v1:"):].encode("ascii")
+    try:
+        return _get_fernet().decrypt(raw).decode("utf-8")
+    except InvalidToken:
+        return None
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:

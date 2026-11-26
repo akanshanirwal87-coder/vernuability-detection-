@@ -58,7 +58,7 @@ By fusing **compiler-level Abstract Syntax Tree (AST) parsing**, **source-to-sin
 
 - **Compiler-Grounded AST Security Analysis**: Traverses Python (`ast`) and JavaScript syntax trees to pinpoint execution sinks, dangerous dynamic calls, and unsanitized string interpolations without running untrusted code.
 - **Inter-Procedural Taint Tracking**: Traces user-controlled inputs (`SOURCE`) through transformations (`TRANSFORM`) directly into sensitive sinks (`SINK`), delivering full 3-step proof traces.
-- **Calibrated ML Ensemble (`SecureCode-VulnNet v2.1`)**: Random Forest and Logistic Regression models trained on leak-free structural partitions, delivering **90.48% accuracy** and **96.30% precision** to corroborate structural evidence.
+- **Calibrated ML Classifier (`SecureCode-VulnNet v2.2`)**: Hybrid TF-IDF + 22 structural security sink/guard features selected via group-stratified Validation split (0% leakage), achieving **89.66% accuracy**, **81.48% precision**, **95.65% recall**, and **88.00% F1** on the untouched test partition to corroborate structural evidence.
 - **Automated Dependency SCA via OSV.dev**: Queries the Google / OpenSSF OSV REST API with SemVer and PEP 440 version range matching across `requirements.txt`, `pyproject.toml`, `package.json`, and `package-lock.json`.
 - **Enterprise Baseline Defense**: Ingests ManageEngine Endpoint Central security rules, unquoted service path execution checks, and critical CVE advisories (CVE-2021-44515, CVE-2020-10189, CVE-2021-44077).
 - **Closed-Loop AST Fix Verification**: Automatically compiles proposed security fixes to verify that the vulnerability sink is eliminated with zero new compiler regressions.
